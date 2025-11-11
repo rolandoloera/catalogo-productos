@@ -1,19 +1,13 @@
 # Render Blueprint - Despliegue Automático
-# Este archivo permite desplegar todos los servicios con un solo click
+# Este archivo permite desplegar los servicios web con un solo click
+# IMPORTANTE: La base de datos PostgreSQL debe crearse manualmente primero
 # Ve a: https://dashboard.render.com/blueprints
 
 services:
-  # Base de datos PostgreSQL
-  - type: pg
-    name: catalogo-productos-db
-    databaseName: catalogo_productos
-    user: catalogo_productos_user
-    plan: free
-
   # API Service (Backend)
   - type: web
     name: catalogo-productos-api
-    runtime: node
+    env: node
     plan: free
     buildCommand: npm install
     startCommand: npm start
@@ -23,15 +17,14 @@ services:
         value: 3001
       - key: API_VERSION
         value: v1
-      - key: DATABASE_URL
-        fromDatabase:
-          name: catalogo-productos-db
-          property: connectionString
+      # IMPORTANTE: Después de crear la BD PostgreSQL manualmente,
+      # ve a este servicio y agrega la variable DATABASE_URL
+      # desde la sección "Connections" de tu base de datos
 
   # Frontend Service
   - type: web
     name: catalogo-productos-frontend
-    runtime: node
+    env: node
     plan: free
     buildCommand: npm install
     startCommand: npm start
@@ -39,9 +32,8 @@ services:
     envVars:
       - key: PORT
         value: 3000
+      # IMPORTANTE: Después de desplegar el API, actualiza esta URL
+      # con la URL real del servicio API (ej: https://catalogo-productos-api.onrender.com)
       - key: API_URL
-        fromService:
-          name: catalogo-productos-api
-          type: web
-          property: host
+        value: https://catalogo-productos-api.onrender.com
 

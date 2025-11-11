@@ -195,11 +195,17 @@ Render.com es una plataforma simple y gratuita para desplegar aplicaciones. **Pe
 
 #### Despliegue Rápido con Blueprint (1 click)
 
-1. Sube tu código a GitHub/GitLab/Bitbucket
-2. Ve a [Render Dashboard](https://dashboard.render.com/)
-3. Click en **"New +"** → **"Blueprint"**
-4. Conecta tu repositorio
-5. Render detectará automáticamente el archivo `render.yaml` y desplegará todo
+**⚠️ IMPORTANTE**: Render no puede crear bases de datos PostgreSQL automáticamente. Debes crear la BD **ANTES** de usar el blueprint.
+
+**Pasos:**
+
+1. **Primero, crea la base de datos PostgreSQL** en Render Dashboard → "New +" → "PostgreSQL"
+2. Sube tu código a GitHub/GitLab/Bitbucket
+3. Ve a [Render Dashboard](https://dashboard.render.com/)
+4. Click en **"New +"** → **"Blueprint"**
+5. Conecta tu repositorio
+6. Render detectará el archivo `render.yaml` y desplegará los servicios web
+7. **Después**, configura `DATABASE_URL` en el API Service desde la sección "Connections" de tu BD
 
 #### Despliegue Manual
 

@@ -1,0 +1,17 @@
+{
+  "name": "catalogo-productos-frontend",
+  "version": "1.0.0",
+  "description": "Frontend para catálogo de productos (Microservicio)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["frontend", "web", "productos", "microservicio"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+

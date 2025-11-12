@@ -57,7 +57,24 @@ async function initializeDatabase() {
     await pool.query(createTableQuery);
     console.log('✅ Tabla productos creada/verificada');
     
-    // Agregar columna imagen_url si no existe (para tablas ya creadas)
+    // Crear tabla para múltiples imágenes por producto
+    const createImagenesTableQuery = `
+      CREATE TABLE IF NOT EXISTS producto_imagenes (
+        id SERIAL PRIMARY KEY,
+        producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+        imagen_url VARCHAR(500) NOT NULL,
+        orden INTEGER DEFAULT 0,
+        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_producto_imagenes_producto_id ON producto_imagenes(producto_id);
+      CREATE INDEX IF NOT EXISTS idx_producto_imagenes_orden ON producto_imagenes(producto_id, orden);
+    `;
+    
+    await pool.query(createImagenesTableQuery);
+    console.log('✅ Tabla producto_imagenes creada/verificada');
+    
+    // Agregar columna imagen_url si no existe (para compatibilidad con versiones anteriores)
     try {
       await pool.query(`
         ALTER TABLE productos 

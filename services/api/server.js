@@ -69,11 +69,19 @@ app.use('/uploads', express.static(uploadDir));
 // Rutas API
 
 // Función helper para convertir tipos de PostgreSQL a JavaScript
-function convertirProducto(producto) {
+async function convertirProducto(producto) {
   // PostgreSQL devuelve DECIMAL como string, necesitamos convertirlo explícitamente
   const precio = typeof producto.precio === 'string' 
     ? parseFloat(producto.precio) 
     : Number(producto.precio);
+  
+  // Obtener todas las imágenes del producto
+  const imagenesResult = await pool.query(
+    'SELECT imagen_url, orden FROM producto_imagenes WHERE producto_id = $1 ORDER BY orden, id',
+    [producto.id]
+  );
+  
+  const imagenes = imagenesResult.rows.map(row => row.imagen_url);
   
   return {
     id: parseInt(producto.id),
@@ -81,7 +89,8 @@ function convertirProducto(producto) {
     descripcion: producto.descripcion || '',
     precio: precio,
     stock: parseInt(producto.stock) || 0,
-    imagen_url: producto.imagen_url || null,
+    imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
+    imagenes: imagenes, // Array de imágenes
     fecha_creacion: producto.fecha_creacion,
     fecha_actualizacion: producto.fecha_actualizacion
   };
@@ -91,8 +100,8 @@ function convertirProducto(producto) {
 app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM productos ORDER BY id');
-    // Convertir tipos de PostgreSQL (DECIMAL viene como string)
-    const productos = result.rows.map(convertirProducto);
+    // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
+    const productos = await Promise.all(result.rows.map(convertirProducto));
     res.json(productos);
   } catch (error) {
     console.error('Error obteniendo productos:', error);
@@ -111,14 +120,14 @@ app.get(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
     }
     
     // Convertir tipos de PostgreSQL
-    res.json(convertirProducto(result.rows[0]));
+    res.json(await convertirProducto(result.rows[0]));
   } catch (error) {
     console.error('Error obteniendo producto:', error);
     res.status(500).json({ error: 'Error al obtener producto' });
   }
 });
 
-// POST /api/v1/upload - Subir imagen
+// POST /api/v1/upload - Subir una imagen
 app.post(`/api/${API_VERSION}/upload`, upload.single('imagen'), async (req, res) => {
   try {
     if (!req.file) {
@@ -153,15 +162,63 @@ app.post(`/api/${API_VERSION}/upload`, upload.single('imagen'), async (req, res)
   }
 });
 
+// POST /api/v1/upload-multiple - Subir múltiples imágenes
+app.post(`/api/${API_VERSION}/upload-multiple`, upload.array('imagenes', 8), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No se proporcionaron archivos' });
+    }
+
+    if (req.files.length > 8) {
+      // Eliminar archivos subidos
+      req.files.forEach(file => fs.unlinkSync(file.path));
+      return res.status(400).json({ error: 'Máximo 8 imágenes por producto' });
+    }
+
+    const imagenUrls = [];
+
+    for (const file of req.files) {
+      let imagenUrl;
+
+      if (cloudinary) {
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: 'catalogo-productos',
+          resource_type: 'image'
+        });
+        imagenUrl = result.secure_url;
+        fs.unlinkSync(file.path);
+      } else {
+        const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
+        imagenUrl = `${baseUrl}/uploads/${file.filename}`;
+      }
+
+      imagenUrls.push(imagenUrl);
+    }
+
+    res.json({ imagenes: imagenUrls });
+  } catch (error) {
+    console.error('Error subiendo imágenes:', error);
+    if (req.files) {
+      req.files.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    }
+    res.status(500).json({ error: 'Error al subir imágenes' });
+  }
+});
+
 // POST /api/v1/productos - Crear un nuevo producto
 app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
-    const { nombre, descripcion, precio, stock, imagen_url } = req.body;
+    const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     
     if (!nombre || precio === undefined) {
       return res.status(400).json({ error: 'Nombre y precio son requeridos' });
     }
     
+    // Insertar producto
     const result = await pool.query(
       'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [
@@ -173,8 +230,20 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
       ]
     );
     
+    const productoId = result.rows[0].id;
+    
+    // Insertar imágenes si se proporcionaron
+    if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
+      for (let i = 0; i < imagenes.length && i < 8; i++) {
+        await pool.query(
+          'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
+          [productoId, imagenes[i], i]
+        );
+      }
+    }
+    
     // Convertir tipos de PostgreSQL
-    res.status(201).json(convertirProducto(result.rows[0]));
+    res.status(201).json(await convertirProducto(result.rows[0]));
   } catch (error) {
     console.error('Error creando producto:', error);
     res.status(500).json({ error: 'Error al crear producto' });
@@ -185,7 +254,7 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
 app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { nombre, descripcion, precio, stock, imagen_url } = req.body;
+    const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     
     // Construir la consulta dinámicamente según los campos proporcionados
     const updates = [];
@@ -227,8 +296,24 @@ app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
     
+    // Actualizar imágenes si se proporcionaron
+    if (imagenes !== undefined && Array.isArray(imagenes)) {
+      // Eliminar imágenes existentes
+      await pool.query('DELETE FROM producto_imagenes WHERE producto_id = $1', [id]);
+      
+      // Insertar nuevas imágenes
+      if (imagenes.length > 0) {
+        for (let i = 0; i < imagenes.length && i < 8; i++) {
+          await pool.query(
+            'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
+            [id, imagenes[i], i]
+          );
+        }
+      }
+    }
+    
     // Convertir tipos de PostgreSQL
-    res.json(convertirProducto(result.rows[0]));
+    res.json(await convertirProducto(result.rows[0]));
   } catch (error) {
     console.error('Error actualizando producto:', error);
     res.status(500).json({ error: 'Error al actualizar producto' });

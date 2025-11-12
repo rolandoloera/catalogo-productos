@@ -255,14 +255,13 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="imagen">Imagen del Producto</label>
-                    <input type="file" id="imagen" accept="image/*">
-                    <small style="color: #666; font-size: 0.9em;">Selecciona una imagen (jpeg, jpg, png, gif, webp - máximo 5MB)</small>
-                    <div id="imagen-preview" style="margin-top: 10px; display: none;">
-                        <img id="imagen-preview-img" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid #ddd;">
-                        <button type="button" onclick="eliminarImagen()" style="margin-left: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Eliminar</button>
+                    <label for="imagenes">Imágenes del Producto (máximo 8)</label>
+                    <input type="file" id="imagenes" accept="image/*" multiple>
+                    <small style="color: #666; font-size: 0.9em;">Selecciona hasta 8 imágenes (jpeg, jpg, png, gif, webp - máximo 5MB cada una)</small>
+                    <div id="imagenes-preview" style="margin-top: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;">
+                        <!-- Las imágenes se mostrarán aquí -->
                     </div>
-                    <input type="hidden" id="imagen_url">
+                    <input type="hidden" id="imagenes_urls">
                 </div>
 
                 <div class="form-row">
@@ -310,16 +309,35 @@
                 guardarProducto();
             });
 
-            // Preview de imagen al seleccionar archivo
-            document.getElementById('imagen').addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
+            // Preview de imágenes al seleccionar archivos
+            document.getElementById('imagenes').addEventListener('change', (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length > 8) {
+                    mostrarMensaje('Máximo 8 imágenes permitidas', 'error');
+                    e.target.value = '';
+                    return;
+                }
+                
+                const previewContainer = document.getElementById('imagenes-preview');
+                previewContainer.innerHTML = '';
+                
+                files.forEach((file, index) => {
                     const reader = new FileReader();
                     reader.onload = (event) => {
-                        document.getElementById('imagen-preview-img').src = event.target.result;
-                        document.getElementById('imagen-preview').style.display = 'block';
+                        const div = document.createElement('div');
+                        div.style.position = 'relative';
+                        div.innerHTML = `
+                            <img src="${event.target.result}" style="width: 100%; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                            <button type="button" onclick="eliminarImagenPreview(${index})" style="position: absolute; top: 5px; right: 5px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-size: 14px;">×</button>
+                        `;
+                        div.dataset.index = index;
+                        previewContainer.appendChild(div);
                     };
                     reader.readAsDataURL(file);
+                });
+                
+                if (files.length > 0) {
+                    previewContainer.style.display = 'grid';
                 }
             });
         });
@@ -351,14 +369,36 @@
             grid.innerHTML = productos.map(producto => {
                 // Asegurar que precio sea un número
                 const precio = typeof producto.precio === 'number' ? producto.precio : parseFloat(producto.precio);
-                const imagenHTML = producto.imagen_url 
-                    ? `<img src="${producto.imagen_url}" alt="${producto.nombre}" class="producto-imagen" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                       <div class="producto-imagen-placeholder" style="display: none;">📷 Imagen no disponible</div>`
-                    : `<div class="producto-imagen-placeholder">📷 Sin imagen</div>`;
+                
+                // Obtener imágenes (usar array imagenes si existe, sino usar imagen_url para compatibilidad)
+                const imagenes = producto.imagenes && producto.imagenes.length > 0 
+                    ? producto.imagenes 
+                    : (producto.imagen_url ? [producto.imagen_url] : []);
+                
+                let imagenesHTML = '';
+                if (imagenes.length > 0) {
+                    // Mostrar primera imagen grande, resto en miniatura
+                    imagenesHTML = `
+                        <div style="position: relative;">
+                            <img src="${imagenes[0]}" alt="${producto.nombre}" class="producto-imagen" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div class="producto-imagen-placeholder" style="display: none;">📷 Imagen no disponible</div>
+                            ${imagenes.length > 1 ? `
+                                <div style="display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap;">
+                                    ${imagenes.slice(1, 5).map(img => `
+                                        <img src="${img}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd;" onerror="this.style.display='none';">
+                                    `).join('')}
+                                    ${imagenes.length > 5 ? `<div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #666;">+${imagenes.length - 5}</div>` : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                } else {
+                    imagenesHTML = `<div class="producto-imagen-placeholder">📷 Sin imagen</div>`;
+                }
                 
                 return `
                 <div class="producto-card">
-                    ${imagenHTML}
+                    ${imagenesHTML}
                     <div class="producto-header">
                         <div class="producto-nombre">${producto.nombre}</div>
                         <div class="producto-precio">$${precio.toFixed(2)}</div>
@@ -374,42 +414,58 @@
             }).join('');
         }
 
-        // Subir imagen
-        async function subirImagen() {
-            const fileInput = document.getElementById('imagen');
-            const file = fileInput.files[0];
+        // Subir múltiples imágenes
+        async function subirImagenes() {
+            const fileInput = document.getElementById('imagenes');
+            const files = Array.from(fileInput.files);
             
-            if (!file) {
-                return null; // No hay archivo, usar imagen_url existente si hay
+            if (files.length === 0) {
+                return null; // No hay archivos, usar imágenes existentes si hay
+            }
+
+            if (files.length > 8) {
+                mostrarMensaje('Máximo 8 imágenes permitidas', 'error');
+                return null;
             }
 
             const formData = new FormData();
-            formData.append('imagen', file);
+            files.forEach(file => {
+                formData.append('imagenes', file);
+            });
 
             try {
-                const response = await fetch(`${API_BASE}/upload`, {
+                const response = await fetch(`${API_BASE}/upload-multiple`, {
                     method: 'POST',
                     body: formData
                 });
 
                 if (!response.ok) {
-                    throw new Error('Error al subir imagen');
+                    throw new Error('Error al subir imágenes');
                 }
 
                 const data = await response.json();
-                return data.imagen_url;
+                return data.imagenes; // Array de URLs
             } catch (error) {
-                console.error('Error subiendo imagen:', error);
-                mostrarMensaje('Error al subir imagen: ' + error.message, 'error');
+                console.error('Error subiendo imágenes:', error);
+                mostrarMensaje('Error al subir imágenes: ' + error.message, 'error');
                 return null;
             }
         }
 
-        // Eliminar imagen seleccionada
-        function eliminarImagen() {
-            document.getElementById('imagen').value = '';
-            document.getElementById('imagen-preview').style.display = 'none';
-            document.getElementById('imagen_url').value = '';
+        // Eliminar imagen del preview
+        function eliminarImagenPreview(index) {
+            const fileInput = document.getElementById('imagenes');
+            const dt = new DataTransfer();
+            const files = Array.from(fileInput.files);
+            
+            files.forEach((file, i) => {
+                if (i !== index) {
+                    dt.items.add(file);
+                }
+            });
+            
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event('change'));
         }
 
         // Guardar producto (crear o actualizar)
@@ -420,17 +476,30 @@
             const precio = parseFloat(document.getElementById('precio').value);
             const stock = parseInt(document.getElementById('stock').value) || 0;
             
-            // Subir imagen si hay un archivo nuevo
-            let imagen_url = document.getElementById('imagen_url').value.trim() || null;
-            const fileInput = document.getElementById('imagen');
-            if (fileInput.files[0]) {
-                const urlSubida = await subirImagen();
-                if (urlSubida) {
-                    imagen_url = urlSubida;
+            // Subir imágenes si hay archivos nuevos
+            let imagenes = null;
+            const fileInput = document.getElementById('imagenes');
+            if (fileInput.files.length > 0) {
+                const urlsSubidas = await subirImagenes();
+                if (urlsSubidas && urlsSubidas.length > 0) {
+                    imagenes = urlsSubidas;
+                }
+            } else {
+                // Si no hay archivos nuevos, mantener las imágenes existentes
+                const imagenesExistentes = document.getElementById('imagenes_urls').value;
+                if (imagenesExistentes) {
+                    try {
+                        imagenes = JSON.parse(imagenesExistentes);
+                    } catch (e) {
+                        imagenes = null;
+                    }
                 }
             }
 
-            const producto = { nombre, descripcion, precio, stock, imagen_url };
+            const producto = { nombre, descripcion, precio, stock };
+            if (imagenes) {
+                producto.imagenes = imagenes;
+            }
 
             try {
                 let response;
@@ -475,15 +544,33 @@
                     document.getElementById('descripcion').value = producto.descripcion || '';
                     document.getElementById('precio').value = producto.precio;
                     document.getElementById('stock').value = producto.stock;
-                    document.getElementById('imagen_url').value = producto.imagen_url || '';
-                    document.getElementById('imagen').value = ''; // Limpiar input file
+                    document.getElementById('imagenes').value = ''; // Limpiar input file
                     
-                    // Mostrar preview de imagen existente
-                    if (producto.imagen_url) {
-                        document.getElementById('imagen-preview-img').src = producto.imagen_url;
-                        document.getElementById('imagen-preview').style.display = 'block';
+                    // Obtener imágenes (usar array imagenes si existe, sino usar imagen_url)
+                    const imagenes = producto.imagenes && producto.imagenes.length > 0 
+                        ? producto.imagenes 
+                        : (producto.imagen_url ? [producto.imagen_url] : []);
+                    
+                    document.getElementById('imagenes_urls').value = JSON.stringify(imagenes);
+                    
+                    // Mostrar preview de imágenes existentes
+                    const previewContainer = document.getElementById('imagenes-preview');
+                    previewContainer.innerHTML = '';
+                    
+                    if (imagenes.length > 0) {
+                        imagenes.forEach((url, index) => {
+                            const div = document.createElement('div');
+                            div.style.position = 'relative';
+                            div.innerHTML = `
+                                <img src="${url}" style="width: 100%; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                                <button type="button" onclick="eliminarImagenExistente(${index})" style="position: absolute; top: 5px; right: 5px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-size: 14px;">×</button>
+                            `;
+                            div.dataset.index = index;
+                            previewContainer.appendChild(div);
+                        });
+                        previewContainer.style.display = 'grid';
                     } else {
-                        document.getElementById('imagen-preview').style.display = 'none';
+                        previewContainer.style.display = 'none';
                     }
                     
                     document.getElementById('form-title').textContent = 'Editar Producto';
@@ -529,12 +616,47 @@
             limpiarFormulario();
         }
 
+        // Eliminar imagen existente del preview
+        function eliminarImagenExistente(index) {
+            const imagenesExistentes = document.getElementById('imagenes_urls').value;
+            if (imagenesExistentes) {
+                try {
+                    let imagenes = JSON.parse(imagenesExistentes);
+                    imagenes.splice(index, 1);
+                    document.getElementById('imagenes_urls').value = JSON.stringify(imagenes);
+                    
+                    // Actualizar preview
+                    const previewContainer = document.getElementById('imagenes-preview');
+                    previewContainer.innerHTML = '';
+                    
+                    if (imagenes.length > 0) {
+                        imagenes.forEach((url, i) => {
+                            const div = document.createElement('div');
+                            div.style.position = 'relative';
+                            div.innerHTML = `
+                                <img src="${url}" style="width: 100%; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                                <button type="button" onclick="eliminarImagenExistente(${i})" style="position: absolute; top: 5px; right: 5px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-size: 14px;">×</button>
+                            `;
+                            div.dataset.index = i;
+                            previewContainer.appendChild(div);
+                        });
+                        previewContainer.style.display = 'grid';
+                    } else {
+                        previewContainer.style.display = 'none';
+                    }
+                } catch (e) {
+                    console.error('Error eliminando imagen:', e);
+                }
+            }
+        }
+
         // Limpiar formulario
         function limpiarFormulario() {
             document.getElementById('producto-form').reset();
             document.getElementById('producto-id').value = '';
-            document.getElementById('imagen_url').value = '';
-            document.getElementById('imagen-preview').style.display = 'none';
+            document.getElementById('imagenes_urls').value = '';
+            document.getElementById('imagenes-preview').innerHTML = '';
+            document.getElementById('imagenes-preview').style.display = 'none';
             document.getElementById('form-title').textContent = 'Agregar Nuevo Producto';
             document.getElementById('submit-btn').textContent = 'Agregar Producto';
             document.getElementById('cancel-btn').classList.add('hidden');

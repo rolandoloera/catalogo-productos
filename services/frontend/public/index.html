@@ -351,11 +351,18 @@
         // Cargar todos los productos
         async function cargarProductos() {
             try {
+                console.log('📥 Cargando productos desde:', `${API_BASE}/productos`);
                 const response = await fetch(`${API_BASE}/productos`);
+                console.log('📥 Respuesta GET productos:', {
+                    status: response.status,
+                    ok: response.ok
+                });
+                
                 if (!response.ok) {
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 productos = await response.json();
+                console.log('✅ Productos cargados:', productos.length);
                 mostrarProductos();
             } catch (error) {
                 mostrarMensaje('Error al cargar productos: ' + error.message, 'error');

@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,7 +11,20 @@ app.use(express.static('public'));
 
 // Inyectar la URL de la API en el HTML
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const htmlPath = path.join(__dirname, 'public', 'index.html');
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  
+  // Inyectar API_URL en el HTML antes de </head>
+  const scriptTag = `
+    <script>
+      window.API_URL = '${API_URL}';
+      window.API_VERSION = 'v1';
+    </script>
+  `;
+  
+  html = html.replace('</head>', scriptTag + '</head>');
+  
+  res.send(html);
 });
 
 // Health check para Cloud Run

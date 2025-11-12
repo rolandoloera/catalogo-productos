@@ -296,6 +296,12 @@
         const API_URL = window.API_URL || 'http://localhost:3001';
         const API_VERSION = window.API_VERSION || 'v1';
         const API_BASE = `${API_URL}/api/${API_VERSION}`;
+        
+        console.log('🔧 Configuración API:', {
+            API_URL: API_URL,
+            API_BASE: API_BASE,
+            API_VERSION: API_VERSION
+        });
 
         let productos = [];
         let editandoId = null;
@@ -502,6 +508,12 @@
             }
 
             try {
+                console.log('📤 Enviando producto al API:', { 
+                    url: `${API_BASE}/productos${id ? '/' + id : ''}`,
+                    method: id ? 'PUT' : 'POST',
+                    producto: { ...producto, imagenes: imagenes?.length || 0 }
+                });
+                
                 let response;
                 if (id) {
                     // Actualizar
@@ -519,15 +531,25 @@
                     });
                 }
 
+                console.log('📥 Respuesta del API:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok
+                });
+
                 if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ Producto guardado exitosamente:', data);
                     mostrarMensaje(`Producto ${id ? 'actualizado' : 'agregado'} correctamente`, 'success');
                     limpiarFormulario();
                     cargarProductos();
                 } else {
                     const error = await response.json();
-                    mostrarMensaje('Error: ' + error.error, 'error');
+                    console.error('❌ Error del API:', error);
+                    mostrarMensaje('Error: ' + (error.error || error.details || 'Error desconocido'), 'error');
                 }
             } catch (error) {
+                console.error('❌ Error al guardar producto:', error);
                 mostrarMensaje('Error al guardar producto: ' + error.message, 'error');
             }
         }

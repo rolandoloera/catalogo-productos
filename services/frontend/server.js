@@ -4,7 +4,8 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const API_URL = process.env.API_URL || 'http://localhost:3001';
+// Normalizar API_URL: remover barra final si existe
+const API_URL = (process.env.API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 // IMPORTANTE: La ruta '/' debe ir ANTES de express.static
 // para que se ejecute primero y pueda inyectar el script

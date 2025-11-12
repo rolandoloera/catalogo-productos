@@ -293,7 +293,8 @@
 
     <script>
         // Configuración de la API - se puede inyectar desde el servidor o usar variable de entorno
-        const API_URL = window.API_URL || 'http://localhost:3001';
+        // Normalizar API_URL: remover barra final si existe
+        const API_URL = (window.API_URL || 'http://localhost:3001').replace(/\/$/, '');
         const API_VERSION = window.API_VERSION || 'v1';
         const API_BASE = `${API_URL}/api/${API_VERSION}`;
         

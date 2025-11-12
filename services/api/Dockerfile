@@ -9,6 +9,9 @@ RUN npm install --production
 
 COPY . .
 
+# Crear directorio para uploads
+RUN mkdir -p uploads
+
 EXPOSE 3001
 
 ENV PORT=3001

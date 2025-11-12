@@ -38,3 +38,7 @@ tmp/
 temp/
 .cache/
 
+# Uploaded files
+services/api/uploads/
+uploads/
+

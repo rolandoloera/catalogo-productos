@@ -1,16 +1,70 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { pool, testConnection, initializeDatabase } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const API_VERSION = process.env.API_VERSION || 'v1';
 
+// Configurar Cloudinary si está disponible (para producción)
+let cloudinary;
+if (process.env.CLOUDINARY_CLOUD_NAME) {
+  try {
+    cloudinary = require('cloudinary').v2;
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+    console.log('✅ Cloudinary configurado para almacenamiento de imágenes');
+  } catch (error) {
+    console.log('⚠️ Cloudinary no disponible, usando almacenamiento local');
+  }
+}
+
+// Configurar almacenamiento local para desarrollo
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'producto-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB máximo
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes (jpeg, jpg, png, gif, webp)'));
+    }
+  }
+});
+
 // Middleware
 app.use(cors()); // Permitir CORS para que el frontend pueda consumir la API
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Servir archivos estáticos de uploads
+app.use('/uploads', express.static(uploadDir));
 
 // Rutas API
 
@@ -27,6 +81,7 @@ function convertirProducto(producto) {
     descripcion: producto.descripcion || '',
     precio: precio,
     stock: parseInt(producto.stock) || 0,
+    imagen_url: producto.imagen_url || null,
     fecha_creacion: producto.fecha_creacion,
     fecha_actualizacion: producto.fecha_actualizacion
   };
@@ -63,18 +118,59 @@ app.get(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   }
 });
 
+// POST /api/v1/upload - Subir imagen
+app.post(`/api/${API_VERSION}/upload`, upload.single('imagen'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ningún archivo' });
+    }
+
+    let imagenUrl;
+
+    // Si Cloudinary está configurado, subir ahí (producción)
+    if (cloudinary) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'catalogo-productos',
+        resource_type: 'image'
+      });
+      imagenUrl = result.secure_url;
+      
+      // Eliminar archivo local después de subir a Cloudinary
+      fs.unlinkSync(req.file.path);
+    } else {
+      // Desarrollo: usar URL local
+      const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
+      imagenUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    }
+
+    res.json({ imagen_url: imagenUrl });
+  } catch (error) {
+    console.error('Error subiendo imagen:', error);
+    if (req.file) {
+      fs.unlinkSync(req.file.path); // Limpiar archivo en caso de error
+    }
+    res.status(500).json({ error: 'Error al subir imagen' });
+  }
+});
+
 // POST /api/v1/productos - Crear un nuevo producto
 app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
-    const { nombre, descripcion, precio, stock } = req.body;
+    const { nombre, descripcion, precio, stock, imagen_url } = req.body;
     
     if (!nombre || precio === undefined) {
       return res.status(400).json({ error: 'Nombre y precio son requeridos' });
     }
     
     const result = await pool.query(
-      'INSERT INTO productos (nombre, descripcion, precio, stock) VALUES ($1, $2, $3, $4) RETURNING *',
-      [nombre.trim(), descripcion ? descripcion.trim() : '', parseFloat(precio), stock !== undefined ? parseInt(stock) : 0]
+      'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [
+        nombre.trim(), 
+        descripcion ? descripcion.trim() : '', 
+        parseFloat(precio), 
+        stock !== undefined ? parseInt(stock) : 0,
+        imagen_url ? imagen_url.trim() : null
+      ]
     );
     
     // Convertir tipos de PostgreSQL
@@ -89,7 +185,7 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
 app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { nombre, descripcion, precio, stock } = req.body;
+    const { nombre, descripcion, precio, stock, imagen_url } = req.body;
     
     // Construir la consulta dinámicamente según los campos proporcionados
     const updates = [];
@@ -111,6 +207,10 @@ app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
     if (stock !== undefined) {
       updates.push(`stock = $${paramIndex++}`);
       values.push(parseInt(stock));
+    }
+    if (imagen_url !== undefined) {
+      updates.push(`imagen_url = $${paramIndex++}`);
+      values.push(imagen_url ? imagen_url.trim() : null);
     }
     
     if (updates.length === 0) {

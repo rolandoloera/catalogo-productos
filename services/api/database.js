@@ -48,6 +48,7 @@ async function initializeDatabase() {
         descripcion TEXT,
         precio DECIMAL(10, 2) NOT NULL,
         stock INTEGER DEFAULT 0,
+        imagen_url VARCHAR(500),
         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -56,14 +57,25 @@ async function initializeDatabase() {
     await pool.query(createTableQuery);
     console.log('✅ Tabla productos creada/verificada');
     
+    // Agregar columna imagen_url si no existe (para tablas ya creadas)
+    try {
+      await pool.query(`
+        ALTER TABLE productos 
+        ADD COLUMN IF NOT EXISTS imagen_url VARCHAR(500);
+      `);
+    } catch (error) {
+      // La columna ya existe o hay otro error, continuar
+      console.log('Columna imagen_url ya existe o no se pudo agregar');
+    }
+    
     // Insertar productos de ejemplo si la tabla está vacía
     const countResult = await pool.query('SELECT COUNT(*) FROM productos');
     if (parseInt(countResult.rows[0].count) === 0) {
       const insertQuery = `
-        INSERT INTO productos (nombre, descripcion, precio, stock) VALUES
-        ('Producto 1', 'Descripción del producto 1', 100.50, 10),
-        ('Producto 2', 'Descripción del producto 2', 250.75, 5),
-        ('Producto 3', 'Descripción del producto 3', 50.00, 20);
+        INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES
+        ('Producto 1', 'Descripción del producto 1', 100.50, 10, 'https://via.placeholder.com/300x300?text=Producto+1'),
+        ('Producto 2', 'Descripción del producto 2', 250.75, 5, 'https://via.placeholder.com/300x300?text=Producto+2'),
+        ('Producto 3', 'Descripción del producto 3', 50.00, 20, 'https://via.placeholder.com/300x300?text=Producto+3');
       `;
       await pool.query(insertQuery);
       console.log('✅ Productos de ejemplo insertados');

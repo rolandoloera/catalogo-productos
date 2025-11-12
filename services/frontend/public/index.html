@@ -144,6 +144,29 @@
             transform: translateY(-2px);
         }
 
+        .producto-imagen {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+        }
+
+        .producto-imagen-placeholder {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+        }
+
         .producto-header {
             display: flex;
             justify-content: space-between;
@@ -231,6 +254,17 @@
                     <textarea id="descripcion"></textarea>
                 </div>
 
+                <div class="form-group">
+                    <label for="imagen">Imagen del Producto</label>
+                    <input type="file" id="imagen" accept="image/*">
+                    <small style="color: #666; font-size: 0.9em;">Selecciona una imagen (jpeg, jpg, png, gif, webp - máximo 5MB)</small>
+                    <div id="imagen-preview" style="margin-top: 10px; display: none;">
+                        <img id="imagen-preview-img" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid #ddd;">
+                        <button type="button" onclick="eliminarImagen()" style="margin-left: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Eliminar</button>
+                    </div>
+                    <input type="hidden" id="imagen_url">
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label for="precio">Precio *</label>
@@ -275,6 +309,19 @@
                 e.preventDefault();
                 guardarProducto();
             });
+
+            // Preview de imagen al seleccionar archivo
+            document.getElementById('imagen').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        document.getElementById('imagen-preview-img').src = event.target.result;
+                        document.getElementById('imagen-preview').style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
         });
 
         // Cargar todos los productos
@@ -304,8 +351,14 @@
             grid.innerHTML = productos.map(producto => {
                 // Asegurar que precio sea un número
                 const precio = typeof producto.precio === 'number' ? producto.precio : parseFloat(producto.precio);
+                const imagenHTML = producto.imagen_url 
+                    ? `<img src="${producto.imagen_url}" alt="${producto.nombre}" class="producto-imagen" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                       <div class="producto-imagen-placeholder" style="display: none;">📷 Imagen no disponible</div>`
+                    : `<div class="producto-imagen-placeholder">📷 Sin imagen</div>`;
+                
                 return `
                 <div class="producto-card">
+                    ${imagenHTML}
                     <div class="producto-header">
                         <div class="producto-nombre">${producto.nombre}</div>
                         <div class="producto-precio">$${precio.toFixed(2)}</div>
@@ -321,6 +374,44 @@
             }).join('');
         }
 
+        // Subir imagen
+        async function subirImagen() {
+            const fileInput = document.getElementById('imagen');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                return null; // No hay archivo, usar imagen_url existente si hay
+            }
+
+            const formData = new FormData();
+            formData.append('imagen', file);
+
+            try {
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Error al subir imagen');
+                }
+
+                const data = await response.json();
+                return data.imagen_url;
+            } catch (error) {
+                console.error('Error subiendo imagen:', error);
+                mostrarMensaje('Error al subir imagen: ' + error.message, 'error');
+                return null;
+            }
+        }
+
+        // Eliminar imagen seleccionada
+        function eliminarImagen() {
+            document.getElementById('imagen').value = '';
+            document.getElementById('imagen-preview').style.display = 'none';
+            document.getElementById('imagen_url').value = '';
+        }
+
         // Guardar producto (crear o actualizar)
         async function guardarProducto() {
             const id = document.getElementById('producto-id').value;
@@ -328,8 +419,18 @@
             const descripcion = document.getElementById('descripcion').value;
             const precio = parseFloat(document.getElementById('precio').value);
             const stock = parseInt(document.getElementById('stock').value) || 0;
+            
+            // Subir imagen si hay un archivo nuevo
+            let imagen_url = document.getElementById('imagen_url').value.trim() || null;
+            const fileInput = document.getElementById('imagen');
+            if (fileInput.files[0]) {
+                const urlSubida = await subirImagen();
+                if (urlSubida) {
+                    imagen_url = urlSubida;
+                }
+            }
 
-            const producto = { nombre, descripcion, precio, stock };
+            const producto = { nombre, descripcion, precio, stock, imagen_url };
 
             try {
                 let response;
@@ -374,6 +475,16 @@
                     document.getElementById('descripcion').value = producto.descripcion || '';
                     document.getElementById('precio').value = producto.precio;
                     document.getElementById('stock').value = producto.stock;
+                    document.getElementById('imagen_url').value = producto.imagen_url || '';
+                    document.getElementById('imagen').value = ''; // Limpiar input file
+                    
+                    // Mostrar preview de imagen existente
+                    if (producto.imagen_url) {
+                        document.getElementById('imagen-preview-img').src = producto.imagen_url;
+                        document.getElementById('imagen-preview').style.display = 'block';
+                    } else {
+                        document.getElementById('imagen-preview').style.display = 'none';
+                    }
                     
                     document.getElementById('form-title').textContent = 'Editar Producto';
                     document.getElementById('submit-btn').textContent = 'Actualizar Producto';
@@ -422,6 +533,8 @@
         function limpiarFormulario() {
             document.getElementById('producto-form').reset();
             document.getElementById('producto-id').value = '';
+            document.getElementById('imagen_url').value = '';
+            document.getElementById('imagen-preview').style.display = 'none';
             document.getElementById('form-title').textContent = 'Agregar Nuevo Producto';
             document.getElementById('submit-btn').textContent = 'Agregar Producto';
             document.getElementById('cancel-btn').classList.add('hidden');

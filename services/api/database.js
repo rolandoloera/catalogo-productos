@@ -30,12 +30,17 @@ const pool = new Pool(
 async function testConnection() {
   try {
     const result = await pool.query('SELECT NOW()');
+    const connectionInfo = process.env.DATABASE_URL 
+      ? `DATABASE_URL (${process.env.DATABASE_URL.split('@')[1]?.split('/')[0] || 'N/A'})`
+      : `${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'catalogo_productos'}`;
     console.log('✅ Conexión a PostgreSQL exitosa');
-    console.log('   Host:', pool.options?.host || pool.options?.connectionString?.split('@')[1]?.split('/')[0] || 'N/A');
+    console.log('   Conexión:', connectionInfo);
     return true;
   } catch (error) {
     console.error('❌ Error conectando a PostgreSQL:', error.message);
     console.error('   Stack:', error.stack);
+    console.error('   DATABASE_URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
+    console.error('   DB_HOST:', process.env.DB_HOST || 'No configurado');
     return false;
   }
 }

@@ -254,12 +254,19 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
     
     // Convertir tipos de PostgreSQL
     const productoConvertido = await convertirProducto(result.rows[0]);
-    console.log('✅ Producto creado exitosamente');
+    console.log('✅ Producto creado exitosamente con ID:', productoConvertido.id);
+    console.log('   Imágenes guardadas:', productoConvertido.imagenes?.length || 0);
     res.status(201).json(productoConvertido);
   } catch (error) {
     console.error('❌ Error creando producto:', error);
-    console.error('Stack trace:', error.stack);
-    res.status(500).json({ error: 'Error al crear producto', details: error.message });
+    console.error('   Mensaje:', error.message);
+    console.error('   Código:', error.code);
+    console.error('   Stack trace:', error.stack);
+    res.status(500).json({ 
+      error: 'Error al crear producto', 
+      details: error.message,
+      code: error.code
+    });
   }
 });
 

@@ -31,9 +31,11 @@ async function testConnection() {
   try {
     const result = await pool.query('SELECT NOW()');
     console.log('✅ Conexión a PostgreSQL exitosa');
+    console.log('   Host:', pool.options?.host || pool.options?.connectionString?.split('@')[1]?.split('/')[0] || 'N/A');
     return true;
   } catch (error) {
     console.error('❌ Error conectando a PostgreSQL:', error.message);
+    console.error('   Stack:', error.stack);
     return false;
   }
 }

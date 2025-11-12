@@ -214,11 +214,14 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     
+    console.log('📥 POST /productos - Datos recibidos:', { nombre, precio, imagenes: imagenes?.length || 0 });
+    
     if (!nombre || precio === undefined) {
       return res.status(400).json({ error: 'Nombre y precio son requeridos' });
     }
     
     // Insertar producto
+    console.log('💾 Insertando producto en BD...');
     const result = await pool.query(
       'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [
@@ -231,22 +234,32 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
     );
     
     const productoId = result.rows[0].id;
+    console.log(`✅ Producto creado con ID: ${productoId}`);
     
     // Insertar imágenes si se proporcionaron
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
+      console.log(`📸 Insertando ${imagenes.length} imágenes...`);
       for (let i = 0; i < imagenes.length && i < 8; i++) {
-        await pool.query(
-          'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
-          [productoId, imagenes[i], i]
-        );
+        try {
+          await pool.query(
+            'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
+            [productoId, imagenes[i], i]
+          );
+          console.log(`✅ Imagen ${i + 1} insertada: ${imagenes[i].substring(0, 50)}...`);
+        } catch (imgError) {
+          console.error(`❌ Error insertando imagen ${i + 1}:`, imgError.message);
+        }
       }
     }
     
     // Convertir tipos de PostgreSQL
-    res.status(201).json(await convertirProducto(result.rows[0]));
+    const productoConvertido = await convertirProducto(result.rows[0]);
+    console.log('✅ Producto creado exitosamente');
+    res.status(201).json(productoConvertido);
   } catch (error) {
-    console.error('Error creando producto:', error);
-    res.status(500).json({ error: 'Error al crear producto' });
+    console.error('❌ Error creando producto:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ error: 'Error al crear producto', details: error.message });
   }
 });
 
@@ -377,17 +390,23 @@ app.get('/info', (req, res) => {
 async function startServer() {
   try {
     // Verificar conexión a la base de datos
+    console.log('🔌 Verificando conexión a PostgreSQL...');
+    console.log('   DATABASE_URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
+    console.log('   DB_HOST:', process.env.DB_HOST || 'No configurado');
+    
     const connected = await testConnection();
     if (!connected) {
       console.error('⚠️  No se pudo conectar a PostgreSQL. Verifica las variables de entorno.');
       console.error('   Variables requeridas: DATABASE_URL o DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
       // No hacer exit, dejar que el servidor inicie y el health check falle
     } else {
+      console.log('✅ Conexión a PostgreSQL exitosa');
       // Inicializar base de datos (crear tabla si no existe)
       try {
         await initializeDatabase();
       } catch (dbError) {
         console.error('⚠️  Error inicializando base de datos:', dbError.message);
+        console.error('   Stack:', dbError.stack);
         console.error('   El servidor iniciará pero algunas funciones pueden no estar disponibles');
         // No hacer exit, dejar que el servidor inicie
       }

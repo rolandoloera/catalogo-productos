@@ -380,13 +380,20 @@ async function startServer() {
     const connected = await testConnection();
     if (!connected) {
       console.error('⚠️  No se pudo conectar a PostgreSQL. Verifica las variables de entorno.');
-      console.error('   Variables requeridas: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
+      console.error('   Variables requeridas: DATABASE_URL o DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
+      // No hacer exit, dejar que el servidor inicie y el health check falle
+    } else {
+      // Inicializar base de datos (crear tabla si no existe)
+      try {
+        await initializeDatabase();
+      } catch (dbError) {
+        console.error('⚠️  Error inicializando base de datos:', dbError.message);
+        console.error('   El servidor iniciará pero algunas funciones pueden no estar disponibles');
+        // No hacer exit, dejar que el servidor inicie
+      }
     }
     
-    // Inicializar base de datos (crear tabla si no existe)
-    await initializeDatabase();
-    
-    // Iniciar servidor HTTP
+    // Iniciar servidor HTTP (siempre iniciar, incluso si hay problemas con la BD)
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 API Service corriendo en http://localhost:${PORT}`);
       console.log(`📋 Health check: http://localhost:${PORT}/health`);
@@ -394,8 +401,10 @@ async function startServer() {
       console.log(`🗄️  Base de datos: PostgreSQL`);
     });
   } catch (error) {
-    console.error('❌ Error al iniciar el servidor:', error);
-    process.exit(1);
+    console.error('❌ Error crítico al iniciar el servidor:', error);
+    console.error('Stack trace:', error.stack);
+    // Solo hacer exit si es un error crítico del servidor HTTP
+    setTimeout(() => process.exit(1), 5000); // Dar tiempo para que los logs se envíen
   }
 }
 

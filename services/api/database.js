@@ -58,21 +58,32 @@ async function initializeDatabase() {
     console.log('✅ Tabla productos creada/verificada');
     
     // Crear tabla para múltiples imágenes por producto
-    const createImagenesTableQuery = `
-      CREATE TABLE IF NOT EXISTS producto_imagenes (
-        id SERIAL PRIMARY KEY,
-        producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
-        imagen_url VARCHAR(500) NOT NULL,
-        orden INTEGER DEFAULT 0,
-        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+    try {
+      const createImagenesTableQuery = `
+        CREATE TABLE IF NOT EXISTS producto_imagenes (
+          id SERIAL PRIMARY KEY,
+          producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+          imagen_url VARCHAR(500) NOT NULL,
+          orden INTEGER DEFAULT 0,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
       
-      CREATE INDEX IF NOT EXISTS idx_producto_imagenes_producto_id ON producto_imagenes(producto_id);
-      CREATE INDEX IF NOT EXISTS idx_producto_imagenes_orden ON producto_imagenes(producto_id, orden);
-    `;
-    
-    await pool.query(createImagenesTableQuery);
-    console.log('✅ Tabla producto_imagenes creada/verificada');
+      await pool.query(createImagenesTableQuery);
+      console.log('✅ Tabla producto_imagenes creada/verificada');
+      
+      // Crear índices por separado (puede fallar si ya existen)
+      try {
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_producto_id ON producto_imagenes(producto_id);');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_orden ON producto_imagenes(producto_id, orden);');
+      } catch (indexError) {
+        // Los índices pueden fallar si ya existen, no es crítico
+        console.log('⚠️  Algunos índices ya existen o no se pudieron crear (no crítico)');
+      }
+    } catch (error) {
+      console.error('⚠️  Error creando tabla producto_imagenes:', error.message);
+      // No lanzar error, continuar con la inicialización
+    }
     
     // Agregar columna imagen_url si no existe (para compatibilidad con versiones anteriores)
     try {

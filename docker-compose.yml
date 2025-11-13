@@ -1,26 +1,28 @@
 version: '3.8'
 
 services:
-  # Base de datos PostgreSQL
+  # Base de datos PostgreSQL (solo se inicia si no se usa DATABASE_URL)
   postgres:
     image: postgres:15-alpine
     container_name: catalogo-productos-db
     environment:
-      - POSTGRES_DB=catalogo_productos
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=${DB_NAME:-catalogo_productos}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./services/api/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - catalogo-network
+    profiles:
+      - local-db  # Solo se inicia si se especifica este perfil o si no hay DATABASE_URL
 
   # Servicio API (Backend)
   api:
@@ -29,26 +31,33 @@ services:
       dockerfile: Dockerfile
     container_name: catalogo-productos-api
     ports:
-      - "3001:3001"
+      - "${PORT:-3001}:${PORT:-3001}"
+    env_file:
+      - .env  # Cargar variables desde .env si existe
     environment:
-      - PORT=3001
-      - API_VERSION=v1
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=catalogo_productos
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
+      - PORT=${PORT:-3001}
+      - API_VERSION=${API_VERSION:-v1}
+      # Si DATABASE_URL está definida, se usará. Si no, se usan las variables individuales
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-catalogo_productos}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - catalogo-network
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${PORT:-3001}/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - catalogo-network
 
   # Servicio Frontend
   frontend:
@@ -57,10 +66,12 @@ services:
       dockerfile: Dockerfile
     container_name: catalogo-productos-frontend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
+    env_file:
+      - .env  # Cargar variables desde .env si existe
     environment:
-      - PORT=3000
-      - API_URL=http://api:3001
+      - PORT=${FRONTEND_PORT:-3000}
+      - API_URL=${API_URL:-http://api:3001}
     depends_on:
       api:
         condition: service_healthy

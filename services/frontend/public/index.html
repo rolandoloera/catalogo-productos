@@ -231,6 +231,325 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+
+        /* Estilos para la galería visual */
+        .galeria-section {
+            margin-top: 40px;
+            margin-bottom: 40px;
+        }
+
+        .galeria-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .galeria-header h2 {
+            color: #333;
+            font-size: 2em;
+        }
+
+        .search-box {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            font-size: 14px;
+            width: 300px;
+            transition: border-color 0.3s;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .galeria-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 25px;
+            margin-top: 20px;
+        }
+
+        .galeria-item {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .galeria-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .galeria-imagen-container {
+            position: relative;
+            width: 100%;
+            height: 250px;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .galeria-imagen {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s;
+        }
+
+        .galeria-item:hover .galeria-imagen {
+            transform: scale(1.05);
+        }
+
+        .galeria-imagen-count {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .galeria-info {
+            padding: 20px;
+        }
+
+        .galeria-nombre {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .galeria-precio {
+            font-size: 1.5em;
+            color: #28a745;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .galeria-descripcion {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* Modal para ver imágenes en grande */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            animation: fadeIn 0.3s;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            position: relative;
+            max-width: 90vw;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .modal-imagen-container {
+            position: relative;
+            max-width: 100%;
+            max-height: 80vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-imagen {
+            max-width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: -40px;
+            right: 0;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: rgba(255,255,255,0.3);
+            transform: rotate(90deg);
+        }
+
+        .modal-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-nav:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .modal-nav.prev {
+            left: -70px;
+        }
+
+        .modal-nav.next {
+            right: -70px;
+        }
+
+        .modal-nav:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .modal-info {
+            margin-top: 20px;
+            text-align: center;
+            color: white;
+        }
+
+        .modal-producto-nombre {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .modal-imagen-counter {
+            font-size: 1em;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .modal-thumbnails {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            max-width: 100%;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .modal-thumbnail {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.3s;
+            opacity: 0.6;
+        }
+
+        .modal-thumbnail:hover {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        .modal-thumbnail.active {
+            border-color: white;
+            opacity: 1;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .modal-nav.prev {
+                left: 10px;
+            }
+
+            .modal-nav.next {
+                right: 10px;
+            }
+
+            .modal-close {
+                top: 10px;
+                right: 10px;
+            }
+
+            .search-box {
+                width: 100%;
+            }
+
+            .galeria-header {
+                flex-direction: column;
+                gap: 15px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -239,54 +558,96 @@
         
         <div id="message" class="message hidden"></div>
 
-        <div class="form-container">
-            <h2 id="form-title">Agregar Nuevo Producto</h2>
-            <form id="producto-form">
-                <input type="hidden" id="producto-id">
-                
-                <div class="form-group">
-                    <label for="nombre">Nombre del Producto *</label>
-                    <input type="text" id="nombre" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="descripcion">Descripción</label>
-                    <textarea id="descripcion"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="imagenes">Imágenes del Producto (máximo 8)</label>
-                    <input type="file" id="imagenes" accept="image/*" multiple>
-                    <small style="color: #666; font-size: 0.9em;">Selecciona hasta 8 imágenes (jpeg, jpg, png, gif, webp - máximo 5MB cada una)</small>
-                    <div id="imagenes-preview" style="margin-top: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;">
-                        <!-- Las imágenes se mostrarán aquí -->
-                    </div>
-                    <input type="hidden" id="imagenes_urls">
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="precio">Precio *</label>
-                        <input type="number" id="precio" step="0.01" min="0" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="stock">Stock</label>
-                        <input type="number" id="stock" min="0" value="0">
-                    </div>
-                </div>
-
-                <div class="button-group">
-                    <button type="submit" class="btn-primary" id="submit-btn">Agregar Producto</button>
-                    <button type="button" class="btn-secondary hidden" id="cancel-btn" onclick="cancelarEdicion()">Cancelar</button>
-                </div>
-            </form>
+        <!-- Tabs para navegar entre secciones -->
+        <div class="tabs">
+            <button class="tab active" onclick="mostrarSeccion('admin')">Administración</button>
+            <button class="tab" onclick="mostrarSeccion('galeria')">Galería Visual</button>
         </div>
 
-        <div id="productos-container">
-            <h2>Lista de Productos</h2>
-            <div class="productos-grid" id="productos-grid">
-                <!-- Los productos se cargarán aquí -->
+        <!-- Sección de Administración -->
+        <div id="admin-section">
+            <div class="form-container">
+                <h2 id="form-title">Agregar Nuevo Producto</h2>
+                <form id="producto-form">
+                    <input type="hidden" id="producto-id">
+                    
+                    <div class="form-group">
+                        <label for="nombre">Nombre del Producto *</label>
+                        <input type="text" id="nombre" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="descripcion">Descripción</label>
+                        <textarea id="descripcion"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="imagenes">Imágenes del Producto (máximo 8)</label>
+                        <input type="file" id="imagenes" accept="image/*" multiple>
+                        <small style="color: #666; font-size: 0.9em;">Selecciona hasta 8 imágenes (jpeg, jpg, png, gif, webp - máximo 5MB cada una)</small>
+                        <div id="imagenes-preview" style="margin-top: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;">
+                            <!-- Las imágenes se mostrarán aquí -->
+                        </div>
+                        <input type="hidden" id="imagenes_urls">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="precio">Precio *</label>
+                            <input type="number" id="precio" step="0.01" min="0" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="stock">Stock</label>
+                            <input type="number" id="stock" min="0" value="0">
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary" id="submit-btn">Agregar Producto</button>
+                        <button type="button" class="btn-secondary hidden" id="cancel-btn" onclick="cancelarEdicion()">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+
+            <div id="productos-container">
+                <h2>Lista de Productos</h2>
+                <div class="productos-grid" id="productos-grid">
+                    <!-- Los productos se cargarán aquí -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección de Galería Visual -->
+        <div id="galeria-section" class="galeria-section hidden">
+            <div class="galeria-header">
+                <h2>🖼️ Galería de Productos</h2>
+                <input type="text" class="search-box" id="galeria-search" placeholder="🔍 Buscar productos..." onkeyup="filtrarGaleria()">
+            </div>
+            <div class="galeria-grid" id="galeria-grid">
+                <!-- Los productos de la galería se cargarán aquí -->
+            </div>
+        </div>
+
+        <!-- Modal para ver imágenes en grande -->
+        <div class="modal-overlay" id="imagen-modal" onclick="cerrarModalSiOverlay(event)">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <button class="modal-close" onclick="cerrarModal()">×</button>
+                <button class="modal-nav prev" id="modal-prev" onclick="cambiarImagen(-1)">‹</button>
+                <button class="modal-nav next" id="modal-next" onclick="cambiarImagen(1)">›</button>
+                
+                <div class="modal-imagen-container">
+                    <img class="modal-imagen" id="modal-imagen" src="" alt="">
+                </div>
+                
+                <div class="modal-info">
+                    <div class="modal-producto-nombre" id="modal-producto-nombre"></div>
+                    <div class="modal-imagen-counter" id="modal-imagen-counter"></div>
+                </div>
+                
+                <div class="modal-thumbnails" id="modal-thumbnails">
+                    <!-- Thumbnails se cargarán aquí -->
+                </div>
             </div>
         </div>
     </div>
@@ -305,11 +666,30 @@
         });
 
         let productos = [];
+        let productosFiltrados = [];
         let editandoId = null;
+        
+        // Variables para el modal de imágenes
+        let imagenesModal = [];
+        let indiceImagenActual = 0;
+        let productoActualModal = null;
 
         // Cargar productos al iniciar
         document.addEventListener('DOMContentLoaded', () => {
             cargarProductos();
+            
+            // Agregar listener para teclas en el modal
+            document.addEventListener('keydown', (e) => {
+                if (document.getElementById('imagen-modal').classList.contains('active')) {
+                    if (e.key === 'Escape') {
+                        cerrarModal();
+                    } else if (e.key === 'ArrowLeft') {
+                        cambiarImagen(-1);
+                    } else if (e.key === 'ArrowRight') {
+                        cambiarImagen(1);
+                    }
+                }
+            });
             
             document.getElementById('producto-form').addEventListener('submit', (e) => {
                 e.preventDefault();
@@ -363,8 +743,10 @@
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 productos = await response.json();
+                productosFiltrados = productos;
                 console.log('✅ Productos cargados:', productos.length);
                 mostrarProductos();
+                mostrarGaleria();
             } catch (error) {
                 mostrarMensaje('Error al cargar productos: ' + error.message, 'error');
                 console.error('Error:', error);
@@ -550,7 +932,11 @@
                     console.log('✅ Producto guardado exitosamente:', data);
                     mostrarMensaje(`Producto ${id ? 'actualizado' : 'agregado'} correctamente`, 'success');
                     limpiarFormulario();
-                    cargarProductos();
+                    await cargarProductos();
+                    // Si estamos en la galería, actualizarla
+                    if (!document.getElementById('galeria-section').classList.contains('hidden')) {
+                        mostrarGaleria();
+                    }
                 } else {
                     const error = await response.json();
                     console.error('❌ Error del API:', error);
@@ -632,7 +1018,11 @@
 
                 if (response.ok || response.status === 204) {
                     mostrarMensaje('Producto eliminado correctamente', 'success');
-                    cargarProductos();
+                    await cargarProductos();
+                    // Si estamos en la galería, actualizarla
+                    if (!document.getElementById('galeria-section').classList.contains('hidden')) {
+                        mostrarGaleria();
+                    }
                 } else {
                     mostrarMensaje('Error al eliminar el producto', 'error');
                 }
@@ -703,6 +1093,172 @@
             setTimeout(() => {
                 messageDiv.classList.add('hidden');
             }, 3000);
+        }
+
+        // Funciones para la galería visual
+        function mostrarSeccion(seccion) {
+            // Ocultar todas las secciones
+            document.getElementById('admin-section').classList.add('hidden');
+            document.getElementById('galeria-section').classList.add('hidden');
+            
+            // Desactivar todos los tabs
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            
+            // Mostrar la sección seleccionada
+            if (seccion === 'admin') {
+                document.getElementById('admin-section').classList.remove('hidden');
+                document.querySelectorAll('.tab')[0].classList.add('active');
+            } else if (seccion === 'galeria') {
+                document.getElementById('galeria-section').classList.remove('hidden');
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                mostrarGaleria();
+            }
+        }
+
+        // Mostrar productos en la galería
+        function mostrarGaleria() {
+            const grid = document.getElementById('galeria-grid');
+            
+            if (productosFiltrados.length === 0) {
+                grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #999; padding: 40px;">No hay productos para mostrar</p>';
+                return;
+            }
+
+            grid.innerHTML = productosFiltrados.map(producto => {
+                const precio = typeof producto.precio === 'number' ? producto.precio : parseFloat(producto.precio);
+                const imagenes = producto.imagenes && producto.imagenes.length > 0 
+                    ? producto.imagenes 
+                    : (producto.imagen_url ? [producto.imagen_url] : []);
+                
+                const imagenPrincipal = imagenes.length > 0 ? imagenes[0] : null;
+                const cantidadImagenes = imagenes.length;
+                
+                return `
+                    <div class="galeria-item" onclick="abrirModalImagenes(${producto.id})">
+                        <div class="galeria-imagen-container">
+                            ${imagenPrincipal ? 
+                                `<img src="${imagenPrincipal}" alt="${producto.nombre}" class="galeria-imagen" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                 <div class="producto-imagen-placeholder" style="display: none;">📷 Sin imagen</div>` :
+                                `<div class="producto-imagen-placeholder">📷 Sin imagen</div>`
+                            }
+                            ${cantidadImagenes > 1 ? `<div class="galeria-imagen-count">${cantidadImagenes} imágenes</div>` : ''}
+                        </div>
+                        <div class="galeria-info">
+                            <div class="galeria-nombre">${producto.nombre}</div>
+                            <div class="galeria-precio">$${precio.toFixed(2)}</div>
+                            <div class="galeria-descripcion">${producto.descripcion || 'Sin descripción'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Filtrar galería por búsqueda
+        function filtrarGaleria() {
+            const busqueda = document.getElementById('galeria-search').value.toLowerCase().trim();
+            
+            if (busqueda === '') {
+                productosFiltrados = productos;
+            } else {
+                productosFiltrados = productos.filter(producto => {
+                    const nombre = producto.nombre.toLowerCase();
+                    const descripcion = (producto.descripcion || '').toLowerCase();
+                    return nombre.includes(busqueda) || descripcion.includes(busqueda);
+                });
+            }
+            
+            mostrarGaleria();
+        }
+
+        // Abrir modal con imágenes del producto
+        async function abrirModalImagenes(productoId) {
+            try {
+                const response = await fetch(`${API_BASE}/productos/${productoId}`);
+                if (!response.ok) {
+                    mostrarMensaje('Error al cargar el producto', 'error');
+                    return;
+                }
+                
+                const producto = await response.json();
+                productoActualModal = producto;
+                
+                // Obtener imágenes
+                imagenesModal = producto.imagenes && producto.imagenes.length > 0 
+                    ? producto.imagenes 
+                    : (producto.imagen_url ? [producto.imagen_url] : []);
+                
+                if (imagenesModal.length === 0) {
+                    mostrarMensaje('Este producto no tiene imágenes', 'error');
+                    return;
+                }
+                
+                indiceImagenActual = 0;
+                actualizarModal();
+                
+                // Mostrar modal
+                document.getElementById('imagen-modal').classList.add('active');
+                document.body.style.overflow = 'hidden'; // Prevenir scroll del body
+            } catch (error) {
+                mostrarMensaje('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Actualizar contenido del modal
+        function actualizarModal() {
+            if (imagenesModal.length === 0) return;
+            
+            const imagen = imagenesModal[indiceImagenActual];
+            document.getElementById('modal-imagen').src = imagen;
+            document.getElementById('modal-imagen').alt = productoActualModal.nombre;
+            document.getElementById('modal-producto-nombre').textContent = productoActualModal.nombre;
+            document.getElementById('modal-imagen-counter').textContent = 
+                `Imagen ${indiceImagenActual + 1} de ${imagenesModal.length}`;
+            
+            // Actualizar botones de navegación
+            document.getElementById('modal-prev').disabled = indiceImagenActual === 0;
+            document.getElementById('modal-next').disabled = indiceImagenActual === imagenesModal.length - 1;
+            
+            // Actualizar thumbnails
+            const thumbnailsContainer = document.getElementById('modal-thumbnails');
+            thumbnailsContainer.innerHTML = imagenesModal.map((img, index) => `
+                <img src="${img}" 
+                     class="modal-thumbnail ${index === indiceImagenActual ? 'active' : ''}" 
+                     onclick="irAImagen(${index})"
+                     alt="Imagen ${index + 1}">
+            `).join('');
+        }
+
+        // Cambiar imagen en el modal
+        function cambiarImagen(direccion) {
+            const nuevoIndice = indiceImagenActual + direccion;
+            if (nuevoIndice >= 0 && nuevoIndice < imagenesModal.length) {
+                indiceImagenActual = nuevoIndice;
+                actualizarModal();
+            }
+        }
+
+        // Ir a una imagen específica desde thumbnail
+        function irAImagen(indice) {
+            if (indice >= 0 && indice < imagenesModal.length) {
+                indiceImagenActual = indice;
+                actualizarModal();
+            }
+        }
+
+        // Cerrar modal
+        function cerrarModal() {
+            document.getElementById('imagen-modal').classList.remove('active');
+            document.body.style.overflow = ''; // Restaurar scroll del body
+            imagenesModal = [];
+            indiceImagenActual = 0;
+            productoActualModal = null;
+        }
+
+        // Cerrar modal si se hace clic en el overlay
+        function cerrarModalSiOverlay(event) {
+            if (event.target.id === 'imagen-modal') {
+                cerrarModal();
+            }
         }
     </script>
 </body>

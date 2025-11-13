@@ -1,0 +1,61 @@
+# Docker Compose para usar con base de datos de Render
+# Uso: docker-compose -f docker-compose.render.yml up --build -d
+
+version: '3.8'
+
+services:
+  # Servicio API (Backend) - Conectado a Render PostgreSQL
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: catalogo-productos-api
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    env_file:
+      - .env  # Cargar variables desde .env (debe contener DATABASE_URL)
+    environment:
+      - PORT=${PORT:-3001}
+      - API_VERSION=${API_VERSION:-v1}
+      - DATABASE_URL=${DATABASE_URL}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+    networks:
+      - catalogo-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Servicio Frontend
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: catalogo-productos-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
+    env_file:
+      - .env  # Cargar variables desde .env si existe
+    environment:
+      - PORT=${FRONTEND_PORT:-3000}
+      - API_URL=${API_URL:-http://api:3001}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${FRONTEND_PORT:-3000}/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - catalogo-network
+
+networks:
+  catalogo-network:
+    driver: bridge
+

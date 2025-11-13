@@ -94,6 +94,40 @@ Para eliminar también los datos de PostgreSQL:
 docker-compose down -v
 ```
 
+### Opción 2.1: Usar Base de Datos de Render Localmente
+
+Si quieres usar la base de datos de Render en lugar de la local:
+
+**Windows (PowerShell):**
+```powershell
+.\start-with-render.ps1
+```
+
+**Linux/Mac:**
+```bash
+chmod +x start-with-render.sh
+./start-with-render.sh
+```
+
+O manualmente:
+
+1. **Crear archivo `.env`** desde el ejemplo:
+   ```bash
+   cp env.example .env
+   ```
+
+2. **Editar `.env`** y configurar tu `DATABASE_URL` de Render:
+   ```env
+   DATABASE_URL=postgresql://usuario:password@host:puerto/database?sslmode=require
+   ```
+
+3. **Iniciar servicios**:
+   ```bash
+   docker-compose -f docker-compose.render.yml up --build -d
+   ```
+
+**Nota:** Ver [CONFIGURACION-BD-RENDER.md](./CONFIGURACION-BD-RENDER.md) para más detalles.
+
 ### Opción 3: Servicios Individuales (Desarrollo)
 
 #### API Service (Backend)

@@ -284,8 +284,8 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
     
     // Insertar producto
     console.log('💾 Insertando producto en BD...');
-    const result = const dbPool = await getPool();
-      await dbPool.query(
+    const dbPool = await getPool();
+    const result = await dbPool.query(
       'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [
         nombre.trim(), 
@@ -304,8 +304,7 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
       console.log(`📸 Insertando ${imagenes.length} imágenes...`);
       for (let i = 0; i < imagenes.length && i < 8; i++) {
         try {
-          const dbPool = await getPool();
-      await dbPool.query(
+          await dbPool.query(
             'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
             [productoId, imagenes[i], i]
           );
@@ -390,8 +389,7 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
       // Insertar nuevas imágenes
       if (imagenes.length > 0) {
         for (let i = 0; i < imagenes.length && i < 8; i++) {
-          const dbPool = await getPool();
-      await dbPool.query(
+          await dbPool.query(
             'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
             [id, imagenes[i], i]
           );

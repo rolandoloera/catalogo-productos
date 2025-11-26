@@ -7,24 +7,28 @@ const { Pool } = require('pg');
 // Función para parsear DATABASE_URL y extraer componentes (para forzar IPv4)
 function parseDatabaseUrl(url) {
   if (!url) return null;
-  // Formato: postgresql://user:password@host:port/database?sslmode=require
-  const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
-  if (match) {
-    return {
-      host: match[3],
-      port: parseInt(match[4]),
-      database: match[5],
-      user: match[1],
-      password: match[2],
-      ssl: {
-        rejectUnauthorized: false
-      },
-      // Forzar IPv4 para evitar problemas de red en Docker
-      family: 4,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    };
+  try {
+    // Formato: postgresql://user:password@host:port/database?sslmode=require
+    const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)(\?.*)?/);
+    if (match) {
+      return {
+        host: match[3],
+        port: parseInt(match[4]),
+        database: match[5],
+        user: match[1],
+        password: match[2],
+        ssl: {
+          rejectUnauthorized: false // Necesario para Supabase
+        },
+        // No forzar IPv4 en Render (puede causar problemas)
+        // family: 4, // Solo para Docker local
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000, // 10 segundos para Supabase
+      };
+    }
+  } catch (error) {
+    console.error('Error parseando DATABASE_URL:', error.message);
   }
   return null;
 }
@@ -32,24 +36,24 @@ function parseDatabaseUrl(url) {
 // Configurar pool de conexiones
 let poolConfig;
 if (process.env.DATABASE_URL) {
-  // Intentar parsear la URL para mejor control
-  const parsed = parseDatabaseUrl(process.env.DATABASE_URL);
-  if (parsed) {
-    poolConfig = parsed;
-    console.log('📝 Usando configuración parseada de DATABASE_URL');
-  } else {
-    // Fallback a connectionString directo
-    poolConfig = {
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false // Necesario para Render PostgreSQL y Supabase
-      },
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000, // Aumentado a 10 segundos para Supabase
-    };
-    console.log('📝 Usando connectionString directo de DATABASE_URL');
-  }
+  // Para Supabase, es mejor usar connectionString directo
+  // ya que maneja automáticamente SSL y otros parámetros
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false // Necesario para Supabase
+    },
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 15000, // 15 segundos para Supabase (puede ser lento)
+  };
+  
+  // Log de configuración (sin mostrar password)
+  const urlParts = process.env.DATABASE_URL.split('@');
+  const hostPart = urlParts[1] ? urlParts[1].split('/')[0] : 'N/A';
+  console.log('📝 Configurando conexión con DATABASE_URL');
+  console.log('   Host:', hostPart);
+  console.log('   SSL: habilitado (rejectUnauthorized: false)');
 } else {
   poolConfig = {
     host: process.env.DB_HOST || 'localhost',

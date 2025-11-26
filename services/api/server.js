@@ -430,11 +430,18 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    console.error('❌ Health check - Error de conexión:', error.message);
+    console.error('   Código:', error.code);
+    console.error('   Detalles:', error.detail || 'N/A');
+    
     res.status(503).json({ 
       status: 'error', 
       service: 'catalogo-productos-api',
+      version: API_VERSION,
       database: 'disconnected',
       message: 'Error conectando a la base de datos',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Ver logs del servidor',
+      code: error.code || 'UNKNOWN',
       timestamp: new Date().toISOString()
     });
   }

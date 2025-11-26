@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { pool, testConnection, initializeDatabase } = require('./database');
+const { login, verifyToken, authenticateToken, requireAdmin, crearUsuarioAdminPorDefecto } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -66,34 +67,87 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Servir archivos estáticos de uploads
 app.use('/uploads', express.static(uploadDir));
 
+// ========== RUTAS DE AUTENTICACIÓN ==========
+
+// POST /api/v1/auth/login - Login de administrador
+app.post(`/api/${API_VERSION}/auth/login`, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+    }
+    
+    const result = await login(email, password);
+    res.json(result);
+  } catch (error) {
+    console.error('Error en login:', error);
+    res.status(401).json({ error: error.message || 'Credenciales inválidas' });
+  }
+});
+
+// GET /api/v1/auth/verify - Verificar token
+app.get(`/api/${API_VERSION}/auth/verify`, authenticateToken, (req, res) => {
+  res.json({
+    valid: true,
+    user: {
+      id: req.user.userId,
+      email: req.user.email,
+      rol: req.user.rol
+    }
+  });
+});
+
 // Rutas API
 
 // Función helper para convertir tipos de PostgreSQL a JavaScript
 async function convertirProducto(producto) {
-  // PostgreSQL devuelve DECIMAL como string, necesitamos convertirlo explícitamente
-  const precio = typeof producto.precio === 'string' 
-    ? parseFloat(producto.precio) 
-    : Number(producto.precio);
-  
-  // Obtener todas las imágenes del producto
-  const imagenesResult = await pool.query(
-    'SELECT imagen_url, orden FROM producto_imagenes WHERE producto_id = $1 ORDER BY orden, id',
-    [producto.id]
-  );
-  
-  const imagenes = imagenesResult.rows.map(row => row.imagen_url);
-  
-  return {
-    id: parseInt(producto.id),
-    nombre: producto.nombre,
-    descripcion: producto.descripcion || '',
-    precio: precio,
-    stock: parseInt(producto.stock) || 0,
-    imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
-    imagenes: imagenes, // Array de imágenes
-    fecha_creacion: producto.fecha_creacion,
-    fecha_actualizacion: producto.fecha_actualizacion
-  };
+  try {
+    // PostgreSQL devuelve DECIMAL como string, necesitamos convertirlo explícitamente
+    const precio = typeof producto.precio === 'string' 
+      ? parseFloat(producto.precio) 
+      : Number(producto.precio);
+    
+    // Obtener todas las imágenes del producto (con manejo de errores)
+    let imagenes = [];
+    try {
+      const imagenesResult = await pool.query(
+        'SELECT imagen_url, orden FROM producto_imagenes WHERE producto_id = $1 ORDER BY orden, id',
+        [producto.id]
+      );
+      imagenes = imagenesResult.rows.map(row => row.imagen_url);
+    } catch (imgError) {
+      // Si la tabla no existe o hay error, usar array vacío
+      console.warn(`⚠️  Error obteniendo imágenes para producto ${producto.id}:`, imgError.message);
+      imagenes = [];
+    }
+    
+    return {
+      id: parseInt(producto.id),
+      nombre: producto.nombre,
+      descripcion: producto.descripcion || '',
+      precio: precio,
+      stock: parseInt(producto.stock) || 0,
+      imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
+      imagenes: imagenes, // Array de imágenes
+      fecha_creacion: producto.fecha_creacion,
+      fecha_actualizacion: producto.fecha_actualizacion
+    };
+  } catch (error) {
+    console.error('Error en convertirProducto:', error);
+    // Retornar producto básico sin imágenes si hay error
+    return {
+      id: parseInt(producto.id),
+      nombre: producto.nombre || '',
+      descripcion: producto.descripcion || '',
+      precio: typeof producto.precio === 'string' ? parseFloat(producto.precio) : Number(producto.precio) || 0,
+      stock: parseInt(producto.stock) || 0,
+      imagen_url: producto.imagen_url || null,
+      imagenes: [],
+      fecha_creacion: producto.fecha_creacion,
+      fecha_actualizacion: producto.fecha_actualizacion
+    };
+  }
 }
 
 // GET /api/v1/productos - Obtener todos los productos
@@ -105,7 +159,12 @@ app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
     res.json(productos);
   } catch (error) {
     console.error('Error obteniendo productos:', error);
-    res.status(500).json({ error: 'Error al obtener productos' });
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Error al obtener productos',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -127,8 +186,8 @@ app.get(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   }
 });
 
-// POST /api/v1/upload - Subir una imagen
-app.post(`/api/${API_VERSION}/upload`, upload.single('imagen'), async (req, res) => {
+// POST /api/v1/upload - Subir una imagen (requiere autenticación)
+app.post(`/api/${API_VERSION}/upload`, authenticateToken, requireAdmin, upload.single('imagen'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No se proporcionó ningún archivo' });
@@ -162,8 +221,8 @@ app.post(`/api/${API_VERSION}/upload`, upload.single('imagen'), async (req, res)
   }
 });
 
-// POST /api/v1/upload-multiple - Subir múltiples imágenes
-app.post(`/api/${API_VERSION}/upload-multiple`, upload.array('imagenes', 8), async (req, res) => {
+// POST /api/v1/upload-multiple - Subir múltiples imágenes (requiere autenticación)
+app.post(`/api/${API_VERSION}/upload-multiple`, authenticateToken, requireAdmin, upload.array('imagenes', 8), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No se proporcionaron archivos' });
@@ -209,8 +268,8 @@ app.post(`/api/${API_VERSION}/upload-multiple`, upload.array('imagenes', 8), asy
   }
 });
 
-// POST /api/v1/productos - Crear un nuevo producto
-app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
+// POST /api/v1/productos - Crear un nuevo producto (requiere autenticación)
+app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     
@@ -270,8 +329,8 @@ app.post(`/api/${API_VERSION}/productos`, async (req, res) => {
   }
 });
 
-// PUT /api/v1/productos/:id - Actualizar un producto
-app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
+// PUT /api/v1/productos/:id - Actualizar un producto (requiere autenticación)
+app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
@@ -340,8 +399,8 @@ app.put(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   }
 });
 
-// DELETE /api/v1/productos/:id - Eliminar un producto
-app.delete(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
+// DELETE /api/v1/productos/:id - Eliminar un producto (requiere autenticación)
+app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const result = await pool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
@@ -411,6 +470,8 @@ async function startServer() {
       // Inicializar base de datos (crear tabla si no existe)
       try {
         await initializeDatabase();
+        // Crear usuario admin por defecto si no existe
+        await crearUsuarioAdminPorDefecto();
       } catch (dbError) {
         console.error('⚠️  Error inicializando base de datos:', dbError.message);
         console.error('   Stack:', dbError.stack);

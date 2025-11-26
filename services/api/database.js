@@ -20,11 +20,11 @@ function parseDatabaseUrl(url) {
         ssl: {
           rejectUnauthorized: false // Necesario para Supabase
         },
-        // No forzar IPv4 en Render (puede causar problemas)
-        // family: 4, // Solo para Docker local
+        // Forzar IPv4 para evitar problemas con IPv6 en Render
+        family: 4,
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000, // 10 segundos para Supabase
+        connectionTimeoutMillis: 15000, // 15 segundos para Supabase
       };
     }
   } catch (error) {
@@ -36,24 +36,30 @@ function parseDatabaseUrl(url) {
 // Configurar pool de conexiones
 let poolConfig;
 if (process.env.DATABASE_URL) {
-  // Para Supabase, es mejor usar connectionString directo
-  // ya que maneja automáticamente SSL y otros parámetros
-  poolConfig = {
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false // Necesario para Supabase
-    },
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 15000, // 15 segundos para Supabase (puede ser lento)
-  };
-  
-  // Log de configuración (sin mostrar password)
-  const urlParts = process.env.DATABASE_URL.split('@');
-  const hostPart = urlParts[1] ? urlParts[1].split('/')[0] : 'N/A';
-  console.log('📝 Configurando conexión con DATABASE_URL');
-  console.log('   Host:', hostPart);
-  console.log('   SSL: habilitado (rejectUnauthorized: false)');
+  // Parsear URL para forzar IPv4 (necesario para Render con Supabase)
+  const parsed = parseDatabaseUrl(process.env.DATABASE_URL);
+  if (parsed) {
+    poolConfig = parsed;
+    console.log('📝 Configurando conexión con DATABASE_URL (parseada, IPv4 forzado)');
+    console.log('   Host:', parsed.host);
+    console.log('   Port:', parsed.port);
+    console.log('   Database:', parsed.database);
+    console.log('   SSL: habilitado (rejectUnauthorized: false)');
+    console.log('   IPv4: forzado (family: 4)');
+  } else {
+    // Fallback a connectionString directo (sin forzar IPv4)
+    poolConfig = {
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false // Necesario para Supabase
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 15000, // 15 segundos para Supabase
+    };
+    console.log('📝 Configurando conexión con DATABASE_URL (connectionString directo)');
+    console.log('   ⚠️  No se pudo parsear URL, usando connectionString (puede fallar con IPv6)');
+  }
 } else {
   poolConfig = {
     host: process.env.DB_HOST || 'localhost',

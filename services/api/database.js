@@ -1,18 +1,37 @@
 const { Pool } = require('pg');
+const dns = require('dns').promises;
 
 // Configuración de la conexión a PostgreSQL
 // Render proporciona DATABASE_URL automáticamente, si está disponible la usamos
 // Si no, usamos las variables individuales (para desarrollo local)
 
+// Función para resolver hostname a IPv4
+async function resolveToIPv4(hostname) {
+  try {
+    const addresses = await dns.lookup(hostname, { family: 4, all: false });
+    if (addresses && addresses.address) {
+      console.log(`   ✅ DNS resuelto a IPv4: ${addresses.address}`);
+      return addresses.address;
+    }
+  } catch (error) {
+    console.warn(`   ⚠️  No se pudo resolver a IPv4 (${hostname}), intentando con hostname original: ${error.message}`);
+  }
+  return hostname; // Fallback al hostname original
+}
+
 // Función para parsear DATABASE_URL y extraer componentes (para forzar IPv4)
-function parseDatabaseUrl(url) {
+async function parseDatabaseUrl(url) {
   if (!url) return null;
   try {
     // Formato: postgresql://user:password@host:port/database?sslmode=require
     const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)(\?.*)?/);
     if (match) {
+      const hostname = match[3];
+      // Resolver hostname a IPv4 explícitamente
+      const ipv4Address = await resolveToIPv4(hostname);
+      
       return {
-        host: match[3],
+        host: ipv4Address, // Usar dirección IPv4 en lugar del hostname
         port: parseInt(match[4]),
         database: match[5],
         user: match[1],
@@ -33,52 +52,78 @@ function parseDatabaseUrl(url) {
   return null;
 }
 
-// Configurar pool de conexiones
-let poolConfig;
-if (process.env.DATABASE_URL) {
-  // Parsear URL para forzar IPv4 (necesario para Render con Supabase)
-  const parsed = parseDatabaseUrl(process.env.DATABASE_URL);
-  if (parsed) {
-    poolConfig = parsed;
-    console.log('📝 Configurando conexión con DATABASE_URL (parseada, IPv4 forzado)');
-    console.log('   Host:', parsed.host);
-    console.log('   Port:', parsed.port);
-    console.log('   Database:', parsed.database);
-    console.log('   SSL: habilitado (rejectUnauthorized: false)');
-    console.log('   IPv4: forzado (family: 4)');
+// Configurar pool de conexiones (async porque necesitamos resolver DNS)
+let pool;
+let poolInitialized = false;
+
+async function initializePool() {
+  if (poolInitialized) {
+    return pool;
+  }
+  
+  let poolConfig;
+  if (process.env.DATABASE_URL) {
+    // Parsear URL y resolver a IPv4 (necesario para Render con Supabase)
+    const parsed = await parseDatabaseUrl(process.env.DATABASE_URL);
+    if (parsed) {
+      poolConfig = parsed;
+      console.log('📝 Configurando conexión con DATABASE_URL (parseada, IPv4 resuelto)');
+      console.log('   Host (IPv4):', parsed.host);
+      console.log('   Port:', parsed.port);
+      console.log('   Database:', parsed.database);
+      console.log('   SSL: habilitado (rejectUnauthorized: false)');
+      console.log('   IPv4: forzado (family: 4)');
+    } else {
+      // Fallback a connectionString directo (sin forzar IPv4)
+      poolConfig = {
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+          rejectUnauthorized: false // Necesario para Supabase
+        },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 15000, // 15 segundos para Supabase
+      };
+      console.log('📝 Configurando conexión con DATABASE_URL (connectionString directo)');
+      console.log('   ⚠️  No se pudo parsear URL, usando connectionString (puede fallar con IPv6)');
+    }
   } else {
-    // Fallback a connectionString directo (sin forzar IPv4)
     poolConfig = {
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false // Necesario para Supabase
-      },
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: process.env.DB_NAME || 'catalogo_productos',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || 'postgres',
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 15000, // 15 segundos para Supabase
+      connectionTimeoutMillis: 2000,
     };
-    console.log('📝 Configurando conexión con DATABASE_URL (connectionString directo)');
-    console.log('   ⚠️  No se pudo parsear URL, usando connectionString (puede fallar con IPv6)');
+    console.log('📝 Usando configuración de variables individuales');
   }
-} else {
-  poolConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'catalogo_productos',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-  };
-  console.log('📝 Usando configuración de variables individuales');
+  
+  pool = new Pool(poolConfig);
+  poolInitialized = true;
+  return pool;
 }
 
-const pool = new Pool(poolConfig);
+// Inicializar pool inmediatamente (no bloqueante)
+initializePool().catch(error => {
+  console.error('❌ Error inicializando pool de conexiones:', error);
+});
+
+// Función para obtener el pool (espera a que se inicialice si es necesario)
+async function getPool() {
+  if (!poolInitialized) {
+    await initializePool();
+  }
+  return pool;
+}
 
 // Función para verificar la conexión
 async function testConnection() {
   try {
+    const dbPool = await getPool();
+    
     // Log de configuración (sin mostrar password completo)
     if (process.env.DATABASE_URL) {
       const urlParts = process.env.DATABASE_URL.split('@');
@@ -94,7 +139,7 @@ async function testConnection() {
       console.log('   User:', process.env.DB_USER || 'postgres');
     }
     
-    const result = await pool.query('SELECT NOW()');
+    const result = await dbPool.query('SELECT NOW()');
     const connectionInfo = process.env.DATABASE_URL 
       ? `DATABASE_URL (${process.env.DATABASE_URL.split('@')[1]?.split('/')[0] || 'N/A'})`
       : `${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'catalogo_productos'}`;
@@ -126,6 +171,8 @@ async function testConnection() {
 // Función para inicializar la base de datos (crear tabla si no existe)
 async function initializeDatabase() {
   try {
+    const dbPool = await getPool();
+    
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS productos (
         id SERIAL PRIMARY KEY,
@@ -139,7 +186,7 @@ async function initializeDatabase() {
       );
     `;
     
-    await pool.query(createTableQuery);
+    await dbPool.query(createTableQuery);
     console.log('✅ Tabla productos creada/verificada');
     
     // Crear tabla para múltiples imágenes por producto
@@ -154,13 +201,13 @@ async function initializeDatabase() {
         );
       `;
       
-      await pool.query(createImagenesTableQuery);
+      await dbPool.query(createImagenesTableQuery);
       console.log('✅ Tabla producto_imagenes creada/verificada');
       
       // Crear índices por separado (puede fallar si ya existen)
       try {
-        await pool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_producto_id ON producto_imagenes(producto_id);');
-        await pool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_orden ON producto_imagenes(producto_id, orden);');
+        await dbPool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_producto_id ON producto_imagenes(producto_id);');
+        await dbPool.query('CREATE INDEX IF NOT EXISTS idx_producto_imagenes_orden ON producto_imagenes(producto_id, orden);');
       } catch (indexError) {
         // Los índices pueden fallar si ya existen, no es crítico
         console.log('⚠️  Algunos índices ya existen o no se pudieron crear (no crítico)');
@@ -172,7 +219,7 @@ async function initializeDatabase() {
     
     // Agregar columna imagen_url si no existe (para compatibilidad con versiones anteriores)
     try {
-      await pool.query(`
+      await dbPool.query(`
         ALTER TABLE productos 
         ADD COLUMN IF NOT EXISTS imagen_url VARCHAR(500);
       `);
@@ -196,29 +243,29 @@ async function initializeDatabase() {
         );
       `;
       
-      await pool.query(createUsuariosTableQuery);
+      await dbPool.query(createUsuariosTableQuery);
       console.log('✅ Tabla usuarios creada/verificada');
       
       // Crear índice para email
       try {
-        await pool.query('CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);');
+        await dbPool.query('CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);');
       } catch (indexError) {
-        console.log('⚠️  Índice de usuarios ya existe');
+        console.log('⚠️  Índice idx_usuarios_email ya existe o no se pudo crear (no crítico)');
       }
     } catch (error) {
       console.error('⚠️  Error creando tabla usuarios:', error.message);
+      // No lanzar error, continuar con la inicialización
     }
     
-    // Insertar productos de ejemplo si la tabla está vacía
-    const countResult = await pool.query('SELECT COUNT(*) FROM productos');
+    // Insertar productos de ejemplo solo si la tabla está vacía
+    const countResult = await dbPool.query('SELECT COUNT(*) FROM productos');
     if (parseInt(countResult.rows[0].count) === 0) {
       const insertQuery = `
-        INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES
-        ('Producto 1', 'Descripción del producto 1', 100.50, 10, 'https://via.placeholder.com/300x300?text=Producto+1'),
-        ('Producto 2', 'Descripción del producto 2', 250.75, 5, 'https://via.placeholder.com/300x300?text=Producto+2'),
-        ('Producto 3', 'Descripción del producto 3', 50.00, 20, 'https://via.placeholder.com/300x300?text=Producto+3');
+        INSERT INTO productos (nombre, descripcion, precio, stock) VALUES
+        ('Producto Ejemplo 1', 'Descripción del producto ejemplo 1', 99.99, 10),
+        ('Producto Ejemplo 2', 'Descripción del producto ejemplo 2', 149.99, 5);
       `;
-      await pool.query(insertQuery);
+      await dbPool.query(insertQuery);
       console.log('✅ Productos de ejemplo insertados');
     }
   } catch (error) {
@@ -228,8 +275,14 @@ async function initializeDatabase() {
 }
 
 module.exports = {
-  pool,
+  get pool() {
+    // Getter síncrono para compatibilidad (puede fallar si no está inicializado)
+    if (!poolInitialized) {
+      throw new Error('Pool no inicializado. Usa getPool() o espera a que se inicialice.');
+    }
+    return pool;
+  },
+  getPool,
   testConnection,
   initializeDatabase
 };
-

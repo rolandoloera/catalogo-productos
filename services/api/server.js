@@ -4,7 +4,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { pool, testConnection, initializeDatabase } = require('./database');
+const { pool, getPool, testConnection, initializeDatabase } = require('./database');
 const { login, verifyToken, authenticateToken, requireAdmin, crearUsuarioAdminPorDefecto } = require('./auth');
 
 const app = express();
@@ -111,7 +111,8 @@ async function convertirProducto(producto) {
     // Obtener todas las imágenes del producto (con manejo de errores)
     let imagenes = [];
     try {
-      const imagenesResult = await pool.query(
+      const dbPool = await getPool();
+      const imagenesResult = await dbPool.query(
         'SELECT imagen_url, orden FROM producto_imagenes WHERE producto_id = $1 ORDER BY orden, id',
         [producto.id]
       );
@@ -153,7 +154,8 @@ async function convertirProducto(producto) {
 // GET /api/v1/productos - Obtener todos los productos
 app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM productos ORDER BY id');
+    const dbPool = await getPool();
+    const result = await dbPool.query('SELECT * FROM productos ORDER BY id');
     // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
     const productos = await Promise.all(result.rows.map(convertirProducto));
     res.json(productos);
@@ -171,8 +173,9 @@ app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
 // GET /api/v1/productos/:id - Obtener un producto por ID
 app.get(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   try {
+    const dbPool = await getPool();
     const id = parseInt(req.params.id);
-    const result = await pool.query('SELECT * FROM productos WHERE id = $1', [id]);
+    const result = await dbPool.query('SELECT * FROM productos WHERE id = $1', [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
@@ -281,7 +284,8 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
     
     // Insertar producto
     console.log('💾 Insertando producto en BD...');
-    const result = await pool.query(
+    const result = const dbPool = await getPool();
+      await dbPool.query(
       'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [
         nombre.trim(), 
@@ -300,7 +304,8 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
       console.log(`📸 Insertando ${imagenes.length} imágenes...`);
       for (let i = 0; i < imagenes.length && i < 8; i++) {
         try {
-          await pool.query(
+          const dbPool = await getPool();
+      await dbPool.query(
             'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
             [productoId, imagenes[i], i]
           );
@@ -369,7 +374,8 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     values.push(id);
     
     const query = `UPDATE productos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-    const result = await pool.query(query, values);
+    const result = const dbPool = await getPool();
+      await dbPool.query(query, values);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
@@ -378,12 +384,14 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     // Actualizar imágenes si se proporcionaron
     if (imagenes !== undefined && Array.isArray(imagenes)) {
       // Eliminar imágenes existentes
-      await pool.query('DELETE FROM producto_imagenes WHERE producto_id = $1', [id]);
+      const dbPool = await getPool();
+      await dbPool.query('DELETE FROM producto_imagenes WHERE producto_id = $1', [id]);
       
       // Insertar nuevas imágenes
       if (imagenes.length > 0) {
         for (let i = 0; i < imagenes.length && i < 8; i++) {
-          await pool.query(
+          const dbPool = await getPool();
+      await dbPool.query(
             'INSERT INTO producto_imagenes (producto_id, imagen_url, orden) VALUES ($1, $2, $3)',
             [id, imagenes[i], i]
           );
@@ -403,7 +411,8 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
 app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const result = await pool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
+    const result = const dbPool = await getPool();
+      await dbPool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
@@ -420,7 +429,9 @@ app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin,
 app.get('/health', async (req, res) => {
   try {
     // Verificar conexión a la base de datos
-    await pool.query('SELECT 1');
+    const { getPool } = require('./database');
+    const dbPool = await getPool();
+    await dbPool.query('SELECT 1');
     res.status(200).json({ 
       status: 'ok', 
       service: 'catalogo-productos-api',

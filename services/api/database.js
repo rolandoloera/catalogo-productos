@@ -274,13 +274,13 @@ async function initializeDatabase() {
   }
 }
 
+// Exportar pool con getter que retorna null si no está inicializado (para compatibilidad)
+// Pero es mejor usar getPool() siempre
 module.exports = {
   get pool() {
-    // Getter síncrono para compatibilidad (puede fallar si no está inicializado)
-    if (!poolInitialized) {
-      throw new Error('Pool no inicializado. Usa getPool() o espera a que se inicialice.');
-    }
-    return pool;
+    // Retornar pool si está inicializado, null si no
+    // Esto permite que el código funcione pero es mejor usar getPool()
+    return poolInitialized ? pool : null;
   },
   getPool,
   testConnection,

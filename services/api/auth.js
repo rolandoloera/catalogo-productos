@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { pool } = require('./database');
+const { getPool } = require('./database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'tu-secret-super-seguro-cambiar-en-produccion';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
@@ -10,8 +10,9 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
  */
 async function crearUsuarioAdminPorDefecto() {
   try {
+    const dbPool = await getPool();
     // Verificar si ya existe un admin
-    const result = await pool.query('SELECT COUNT(*) FROM usuarios WHERE rol = $1', ['admin']);
+    const result = await dbPool.query('SELECT COUNT(*) FROM usuarios WHERE rol = $1', ['admin']);
     if (parseInt(result.rows[0].count) > 0) {
       return; // Ya existe un admin
     }
@@ -23,7 +24,7 @@ async function crearUsuarioAdminPorDefecto() {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await pool.query(
+    await dbPool.query(
       'INSERT INTO usuarios (email, password_hash, nombre, rol, activo) VALUES ($1, $2, $3, $4, $5)',
       [email, passwordHash, nombre, 'admin', true]
     );
@@ -42,8 +43,9 @@ async function crearUsuarioAdminPorDefecto() {
  */
 async function login(email, password) {
   try {
+    const dbPool = await getPool();
     // Buscar usuario
-    const result = await pool.query(
+    const result = await dbPool.query(
       'SELECT id, email, password_hash, nombre, rol, activo FROM usuarios WHERE email = $1',
       [email.toLowerCase().trim()]
     );

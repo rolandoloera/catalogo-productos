@@ -14,9 +14,12 @@ async function resolveToIPv4(hostname) {
       return addresses.address;
     }
   } catch (error) {
-    console.warn(`   ⚠️  No se pudo resolver a IPv4 (${hostname}), intentando con hostname original: ${error.message}`);
+    console.warn(`   ⚠️  No se pudo resolver a IPv4 (${hostname}): ${error.message}`);
+    console.warn(`   ⚠️  Esto puede causar problemas si Supabase solo tiene IPv6`);
+    // Retornar null para indicar que falló
+    return null;
   }
-  return hostname; // Fallback al hostname original
+  return null;
 }
 
 // Función para parsear DATABASE_URL y extraer componentes (para forzar IPv4)
@@ -29,6 +32,12 @@ async function parseDatabaseUrl(url) {
       const hostname = match[3];
       // Resolver hostname a IPv4 explícitamente
       const ipv4Address = await resolveToIPv4(hostname);
+      
+      // Si no se pudo resolver a IPv4, retornar null para usar connectionString directo
+      if (!ipv4Address) {
+        console.warn(`   ⚠️  No se pudo resolver a IPv4, se usará connectionString directo`);
+        return null;
+      }
       
       return {
         host: ipv4Address, // Usar dirección IPv4 en lugar del hostname

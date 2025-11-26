@@ -373,8 +373,8 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     values.push(id);
     
     const query = `UPDATE productos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-    const result = const dbPool = await getPool();
-      await dbPool.query(query, values);
+    const dbPool = await getPool();
+    const result = await dbPool.query(query, values);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
@@ -408,9 +408,9 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
 // DELETE /api/v1/productos/:id - Eliminar un producto (requiere autenticación)
 app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
   try {
+    const dbPool = await getPool();
     const id = parseInt(req.params.id);
-    const result = const dbPool = await getPool();
-      await dbPool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
+    const result = await dbPool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });

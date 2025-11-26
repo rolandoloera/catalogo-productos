@@ -38,7 +38,59 @@ La aplicación está dividida en **2 microservicios independientes**:
 
 ## 🚀 Instalación Local
 
-### Opción 1: Emular Cloud Run con Docker (Recomendado para probar como producción)
+### ⚡ Opción 1: Desarrollo Local SIN Docker (Recomendado para desarrollo diario)
+
+**Ideal para desarrollo diario con hot-reload automático** - Los cambios se ven al instante sin rebuild.
+
+#### API Service (Backend)
+
+```bash
+cd services/api
+npm install
+npm run dev
+```
+
+El API estará disponible en `http://localhost:3001` con **hot-reload automático**.
+
+**Variables de entorno necesarias:**
+- Crea un archivo `.env` en `services/api/` o usa las variables del `.env` en la raíz:
+  ```env
+  DATABASE_URL=postgresql://neondb_owner:password@ep-green-field-a4w3zngj-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require
+  PORT=3001
+  JWT_SECRET=tu-secret-key-aqui
+  CLOUDINARY_CLOUD_NAME=tu-cloud-name
+  CLOUDINARY_API_KEY=tu-api-key
+  CLOUDINARY_API_SECRET=tu-api-secret
+  ```
+
+#### Frontend Next.js
+
+```bash
+cd ../catalogo-productos-nextjs  # Desde la raíz del proyecto
+npm install
+npm run dev
+```
+
+El frontend estará disponible en `http://localhost:3000` con **hot-reload automático**.
+
+**Variables de entorno necesarias:**
+- Crea un archivo `.env.local` en `catalogo-productos-nextjs/`:
+  ```env
+  NEXT_PUBLIC_API_URL=http://localhost:3001
+  API_URL=http://localhost:3001
+  ```
+
+**Ventajas:**
+- ✅ Hot-reload automático (cambios instantáneos)
+- ✅ Más rápido para desarrollo
+- ✅ Debugging más fácil
+- ✅ No necesitas Docker corriendo
+
+**Nota:** Asegúrate de tener tu `DATABASE_URL` de Neon configurada para conectar a la base de datos.
+
+---
+
+### 🐳 Opción 2: Emular Cloud Run con Docker (Para probar antes de producción)
 
 Emula exactamente cómo funcionará en Cloud Run usando Docker:
 
@@ -128,27 +180,6 @@ O manualmente:
 
 **Nota:** Ver [CONFIGURACION-BD-RENDER.md](./CONFIGURACION-BD-RENDER.md) para más detalles.
 
-### Opción 3: Servicios Individuales (Desarrollo)
-
-#### API Service (Backend)
-
-```bash
-cd services/api
-npm install
-npm start
-```
-
-El API estará disponible en `http://localhost:3001`
-
-#### Frontend Service
-
-```bash
-cd services/frontend
-npm install
-API_URL=http://localhost:3001 npm start
-```
-
-El frontend estará disponible en `http://localhost:3000`
 
 ## 📡 Uso de la API
 
@@ -375,15 +406,21 @@ catalogo-productos/
 - `PORT`: Puerto del servidor (default: 3000)
 - `API_URL`: URL del servicio API (default: http://localhost:3001)
 
+## 🔄 Flujo de Trabajo Recomendado
+
+1. **Desarrollo diario**: Usa **Opción 1 (Desarrollo Local)** para trabajar con hot-reload
+2. **Testing final**: Usa **Opción 2 (Docker)** para probar como producción antes de desplegar
+3. **Producción**: Despliega en **Render** usando Docker (ver `DESPLIEGUE-RENDER-NEON.md`)
+
 ## 📝 Notas
 
-- **Base de datos**: PostgreSQL (persistente, los datos se guardan)
-- **Docker Compose**: Incluye PostgreSQL automáticamente
-- **Producción**: Usa Cloud SQL (PostgreSQL gestionado por Google)
-- Cada servicio puede escalarse independientemente en Cloud Run
+- **Base de datos**: PostgreSQL en Neon (gratis, persistente)
+- **Desarrollo**: Usa desarrollo local sin Docker para velocidad
+- **Testing**: Usa Docker para emular producción antes de desplegar
+- **Producción**: Render.com con Docker (ver `DESPLIEGUE-RENDER-NEON.md`)
+- Cada servicio puede escalarse independientemente
 - Los servicios se comunican mediante HTTP REST
 - El frontend usa CORS para comunicarse con el API
-- Ver `BASE-DATOS.md` para más información sobre la base de datos
 
 ## 🛠️ Tecnologías Utilizadas
 

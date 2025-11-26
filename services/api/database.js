@@ -3,32 +3,87 @@ const { Pool } = require('pg');
 // Configuración de la conexión a PostgreSQL
 // Render proporciona DATABASE_URL automáticamente, si está disponible la usamos
 // Si no, usamos las variables individuales (para desarrollo local)
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: {
-          rejectUnauthorized: false // Necesario para Render PostgreSQL
-        },
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
-      }
-    : {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 5432,
-        database: process.env.DB_NAME || 'catalogo_productos',
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || 'postgres',
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
-      }
-);
+
+// Función para parsear DATABASE_URL y extraer componentes (para forzar IPv4)
+function parseDatabaseUrl(url) {
+  if (!url) return null;
+  // Formato: postgresql://user:password@host:port/database?sslmode=require
+  const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
+  if (match) {
+    return {
+      host: match[3],
+      port: parseInt(match[4]),
+      database: match[5],
+      user: match[1],
+      password: match[2],
+      ssl: {
+        rejectUnauthorized: false
+      },
+      // Forzar IPv4 para evitar problemas de red en Docker
+      family: 4,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    };
+  }
+  return null;
+}
+
+// Configurar pool de conexiones
+let poolConfig;
+if (process.env.DATABASE_URL) {
+  // Intentar parsear la URL para mejor control
+  const parsed = parseDatabaseUrl(process.env.DATABASE_URL);
+  if (parsed) {
+    poolConfig = parsed;
+    console.log('📝 Usando configuración parseada de DATABASE_URL');
+  } else {
+    // Fallback a connectionString directo
+    poolConfig = {
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false // Necesario para Render PostgreSQL y Supabase
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000, // Aumentado a 10 segundos para Supabase
+    };
+    console.log('📝 Usando connectionString directo de DATABASE_URL');
+  }
+} else {
+  poolConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'catalogo_productos',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  };
+  console.log('📝 Usando configuración de variables individuales');
+}
+
+const pool = new Pool(poolConfig);
 
 // Función para verificar la conexión
 async function testConnection() {
   try {
+    // Log de configuración (sin mostrar password completo)
+    if (process.env.DATABASE_URL) {
+      const urlParts = process.env.DATABASE_URL.split('@');
+      const hostPart = urlParts[1] ? urlParts[1].split('/')[0] : 'N/A';
+      console.log('🔌 Intentando conectar con DATABASE_URL');
+      console.log('   Host:', hostPart);
+      console.log('   URL completa configurada:', process.env.DATABASE_URL ? 'Sí' : 'No');
+    } else {
+      console.log('🔌 Intentando conectar con variables individuales');
+      console.log('   Host:', process.env.DB_HOST || 'localhost');
+      console.log('   Port:', process.env.DB_PORT || 5432);
+      console.log('   Database:', process.env.DB_NAME || 'catalogo_productos');
+      console.log('   User:', process.env.DB_USER || 'postgres');
+    }
+    
     const result = await pool.query('SELECT NOW()');
     const connectionInfo = process.env.DATABASE_URL 
       ? `DATABASE_URL (${process.env.DATABASE_URL.split('@')[1]?.split('/')[0] || 'N/A'})`
@@ -38,9 +93,22 @@ async function testConnection() {
     return true;
   } catch (error) {
     console.error('❌ Error conectando a PostgreSQL:', error.message);
-    console.error('   Stack:', error.stack);
-    console.error('   DATABASE_URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
-    console.error('   DB_HOST:', process.env.DB_HOST || 'No configurado');
+    console.error('   Código:', error.code);
+    console.error('   Detalles:', error.detail || 'N/A');
+    if (error.stack) {
+      console.error('   Stack:', error.stack.split('\n').slice(0, 3).join('\n'));
+    }
+    console.error('   DATABASE_URL configurada:', process.env.DATABASE_URL ? 'Sí' : 'No');
+    if (process.env.DATABASE_URL) {
+      const urlParts = process.env.DATABASE_URL.split('@');
+      const hostPart = urlParts[1] ? urlParts[1].split('/')[0] : 'N/A';
+      console.error('   Host en DATABASE_URL:', hostPart);
+    } else {
+      console.error('   DB_HOST:', process.env.DB_HOST || 'No configurado');
+      console.error('   DB_PORT:', process.env.DB_PORT || 'No configurado');
+      console.error('   DB_NAME:', process.env.DB_NAME || 'No configurado');
+      console.error('   DB_USER:', process.env.DB_USER || 'No configurado');
+    }
     return false;
   }
 }
@@ -101,6 +169,34 @@ async function initializeDatabase() {
     } catch (error) {
       // La columna ya existe o hay otro error, continuar
       console.log('Columna imagen_url ya existe o no se pudo agregar');
+    }
+    
+    // Crear tabla de usuarios para autenticación
+    try {
+      const createUsuariosTableQuery = `
+        CREATE TABLE IF NOT EXISTS usuarios (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          nombre VARCHAR(100),
+          rol VARCHAR(20) DEFAULT 'admin',
+          activo BOOLEAN DEFAULT true,
+          fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+      
+      await pool.query(createUsuariosTableQuery);
+      console.log('✅ Tabla usuarios creada/verificada');
+      
+      // Crear índice para email
+      try {
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);');
+      } catch (indexError) {
+        console.log('⚠️  Índice de usuarios ya existe');
+      }
+    } catch (error) {
+      console.error('⚠️  Error creando tabla usuarios:', error.message);
     }
     
     // Insertar productos de ejemplo si la tabla está vacía

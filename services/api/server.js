@@ -1,3 +1,8 @@
+// Cargar variables de entorno desde .env (solo en desarrollo local)
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');

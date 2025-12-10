@@ -776,8 +776,11 @@ app.post(`/api/${API_VERSION}/upload`, authenticateToken, requireAdmin, upload.s
       // Eliminar archivo local después de subir a Cloudinary
       fs.unlinkSync(req.file.path);
     } else {
-      // Desarrollo: usar URL local
-      const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
+      // Desarrollo/Producción: usar URL configurada o detectar automáticamente
+      const baseUrl = process.env.API_BASE_URL || 
+                     (process.env.NODE_ENV === 'production'
+                       ? 'https://catalogo-productos-api.onrender.com'
+                       : `http://localhost:${PORT}`);
       imagenUrl = `${baseUrl}/uploads/${req.file.filename}`;
     }
 

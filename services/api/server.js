@@ -115,6 +115,27 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
+// Middleware para manejar errores y asegurar CORS en respuestas de error
+app.use((err, req, res, next) => {
+  // Aplicar CORS manualmente en caso de error
+  const origin = req.headers.origin;
+  if (origin) {
+    const isAllowed = allowedOrigins.includes(origin) || 
+                     allowedOrigins.includes('*') ||
+                     (process.env.NODE_ENV !== 'production' && origin.includes('localhost'));
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+  }
+  
+  if (err.message === 'No permitido por CORS') {
+    return res.status(403).json({ error: 'No permitido por CORS' });
+  }
+  
+  next(err);
+});
+
 // Rate limiting general
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
@@ -514,6 +535,7 @@ app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
     if (process.env.NODE_ENV === 'development') {
       console.error('Stack:', error.stack);
     }
+    // Asegurar que CORS se aplique incluso en errores
     res.status(500).json({ 
       error: 'Error al obtener productos',
       ...(process.env.NODE_ENV === 'development' && { details: error.message })

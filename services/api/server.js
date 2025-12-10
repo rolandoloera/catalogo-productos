@@ -92,6 +92,14 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
   : ['http://localhost:3000'];
 
+// Agregar origen de producción si está en producción (fallback si FRONTEND_URL no está configurada)
+if (process.env.NODE_ENV === 'production') {
+  const prodOrigin = 'https://catalogo-productos-nextjs.onrender.com';
+  if (!allowedOrigins.includes(prodOrigin)) {
+    allowedOrigins.push(prodOrigin);
+  }
+}
+
 // Agregar origen de producción si está en producción
 if (process.env.NODE_ENV === 'production') {
   // Agregar el origen de producción si no está en la lista

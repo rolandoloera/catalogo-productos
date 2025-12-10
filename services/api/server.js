@@ -439,6 +439,25 @@ app.delete(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwner, 
 
 // Rutas API
 
+/**
+ * Normalizar URL de imagen: reemplazar localhost con URL de producción
+ */
+function normalizarUrlImagen(url) {
+  if (!url) return url;
+  
+  // Si la URL contiene localhost, reemplazarla con la URL de producción
+  if (url.includes('localhost:3001') || url.includes('http://localhost')) {
+    const apiBaseUrl = process.env.API_BASE_URL || 
+                      (process.env.NODE_ENV === 'production' 
+                        ? 'https://catalogo-productos-api.onrender.com'
+                        : `http://localhost:${PORT}`);
+    // Reemplazar la parte del host
+    return url.replace(/https?:\/\/[^\/]+/, apiBaseUrl);
+  }
+  
+  return url;
+}
+
 // Función helper para convertir tipos de PostgreSQL a JavaScript
 // includeTelefono: si es false, NO incluye usuario_telefono (para endpoints públicos por seguridad)
 async function convertirProducto(producto, includeTelefono = true) {
@@ -454,7 +473,8 @@ async function convertirProducto(producto, includeTelefono = true) {
         'SELECT imagen_url, orden FROM producto_imagenes WHERE producto_id = $1 ORDER BY orden, id',
         [producto.id]
       );
-      imagenes = imagenesResult.rows.map(row => row.imagen_url);
+      // Normalizar URLs de imágenes (reemplazar localhost con URL de producción)
+      imagenes = imagenesResult.rows.map(row => normalizarUrlImagen(row.imagen_url));
     } catch (imgError) {
       // Si la tabla no existe o hay error, usar array vacío
       console.warn(`⚠️  Error obteniendo imágenes para producto ${producto.id}:`, imgError.message);
@@ -523,7 +543,7 @@ async function convertirProducto(producto, includeTelefono = true) {
       descripcion: producto.descripcion || '',
       precio: safeParseFloat(producto.precio, 0),
       stock: safeParseInt(producto.stock, 0),
-      imagen_url: producto.imagen_url || null,
+      imagen_url: normalizarUrlImagen(producto.imagen_url) || null,
       imagenes: [],
       usuario_id: producto.usuario_id ? safeParseInt(producto.usuario_id, 0) : undefined,
       usuario_telefono: includeTelefono ? null : undefined,
@@ -814,7 +834,11 @@ app.post(`/api/${API_VERSION}/upload-multiple`, authenticateToken, requireAdmin,
           imagenUrl = result.secure_url;
           fs.unlinkSync(file.path);
         } else {
-          const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
+          // Desarrollo/Producción: usar URL configurada o detectar automáticamente
+          const baseUrl = process.env.API_BASE_URL || 
+                         (process.env.NODE_ENV === 'production'
+                           ? 'https://catalogo-productos-api.onrender.com'
+                           : `http://localhost:${PORT}`);
           imagenUrl = `${baseUrl}/uploads/${file.filename}`;
         }
 

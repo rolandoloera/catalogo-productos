@@ -34,6 +34,7 @@ services:
         value: 3000
       # IMPORTANTE: Después de desplegar el API, actualiza esta URL
       # con la URL real del servicio API (ej: https://catalogo-productos-api.onrender.com)
-      - key: API_URL
+      # DEBE empezar con NEXT_PUBLIC_ para que Next.js la exponga al cliente
+      - key: NEXT_PUBLIC_API_URL
         value: https://catalogo-productos-api.onrender.com
 

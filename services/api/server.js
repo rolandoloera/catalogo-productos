@@ -92,19 +92,39 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
   : ['http://localhost:3000'];
 
+// Agregar origen de producción si está en producción
+if (process.env.NODE_ENV === 'production') {
+  // Agregar el origen de producción si no está en la lista
+  const prodOrigin = 'https://catalogo-productos-nextjs.onrender.com';
+  if (!allowedOrigins.includes(prodOrigin)) {
+    allowedOrigins.push(prodOrigin);
+  }
+}
+
+console.log('🌐 CORS configurado para orígenes:', allowedOrigins);
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Permitir requests sin origen (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('⚠️  Request sin origen (permitido)');
+      return callback(null, true);
+    }
+    
+    console.log('🔍 Verificando origen CORS:', origin);
     
     // Verificar si el origen está en la lista permitida
     if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+      console.log('✅ Origen permitido:', origin);
       callback(null, true);
     } else {
       // En desarrollo, permitir localhost
       if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
+        console.log('✅ Origen localhost permitido (desarrollo):', origin);
         callback(null, true);
       } else {
+        console.log('❌ Origen NO permitido:', origin);
+        console.log('   Orígenes permitidos:', allowedOrigins);
         callback(new Error('No permitido por CORS'));
       }
     }

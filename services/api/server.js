@@ -9,8 +9,9 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
 const { pool, getPool, testConnection, initializeDatabase } = require('./database');
-const { login, verifyToken, authenticateToken, requireAdmin, crearUsuarioAdminPorDefecto } = require('./auth');
+const { login, verifyToken, authenticateToken, requireAdmin, requireOwner, requireOwnerOrSelf, crearUsuarioAdminPorDefecto } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -103,6 +104,149 @@ app.get(`/api/${API_VERSION}/auth/verify`, authenticateToken, (req, res) => {
   });
 });
 
+// ========== RUTAS DE USUARIOS ==========
+
+// GET /api/v1/usuarios - Listar todos los usuarios (solo owner)
+app.get(`/api/${API_VERSION}/usuarios`, authenticateToken, requireOwner, async (req, res) => {
+  try {
+    const dbPool = await getPool();
+    const result = await dbPool.query(
+      'SELECT id, email, nombre, rol, telefono, activo, fecha_creacion, fecha_actualizacion FROM usuarios ORDER BY id'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo usuarios:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
+// POST /api/v1/usuarios - Crear nuevo usuario administrador (solo owner)
+app.post(`/api/${API_VERSION}/usuarios`, authenticateToken, requireOwner, async (req, res) => {
+  try {
+    const { email, password, nombre, telefono } = req.body;
+
+    if (!email || !password || !nombre) {
+      return res.status(400).json({ error: 'Email, contraseña y nombre son requeridos' });
+    }
+
+    const dbPool = await getPool();
+
+    // Verificar que el email no exista
+    const emailCheck = await dbPool.query('SELECT id FROM usuarios WHERE email = $1', [email.toLowerCase().trim()]);
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'El email ya está registrado' });
+    }
+
+    // Hashear contraseña
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Crear usuario (siempre como admin, no owner)
+    const result = await dbPool.query(
+      'INSERT INTO usuarios (email, password_hash, nombre, rol, telefono, activo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, nombre, rol, telefono, activo, fecha_creacion, fecha_actualizacion',
+      [email.toLowerCase().trim(), passwordHash, nombre.trim(), 'admin', telefono || null, true]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creando usuario:', error);
+    res.status(500).json({ error: 'Error al crear usuario' });
+  }
+});
+
+// PUT /api/v1/usuarios/:id - Actualizar usuario
+app.put(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwnerOrSelf, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, telefono, activo } = req.body;
+
+    const dbPool = await getPool();
+
+    // Verificar que el usuario existe
+    const userCheck = await dbPool.query('SELECT id, rol FROM usuarios WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const existingUser = userCheck.rows[0];
+    const currentUserRol = req.user.rol;
+    const currentUserId = req.user.userId;
+
+    // Si es owner intentando actualizar otro owner, no permitir
+    if (currentUserRol === 'owner' && existingUser.rol === 'owner' && existingUser.id !== currentUserId) {
+      return res.status(403).json({ error: 'No puedes modificar otro usuario owner' });
+    }
+
+    // Construir query dinámicamente
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (nombre !== undefined) {
+      updates.push(`nombre = $${paramIndex++}`);
+      values.push(nombre.trim());
+    }
+    if (telefono !== undefined) {
+      updates.push(`telefono = $${paramIndex++}`);
+      values.push(telefono ? telefono.trim() : null);
+    }
+    if (activo !== undefined && currentUserRol === 'owner') {
+      // Solo owner puede cambiar el estado activo
+      updates.push(`activo = $${paramIndex++}`);
+      values.push(activo);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No hay campos para actualizar' });
+    }
+
+    updates.push(`fecha_actualizacion = CURRENT_TIMESTAMP`);
+    values.push(id);
+
+    const query = `UPDATE usuarios SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, nombre, rol, telefono, activo, fecha_creacion, fecha_actualizacion`;
+    const result = await dbPool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error actualizando usuario:', error);
+    res.status(500).json({ error: 'Error al actualizar usuario' });
+  }
+});
+
+// DELETE /api/v1/usuarios/:id - Eliminar usuario (solo owner)
+app.delete(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwner, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user.userId;
+
+    // No permitir eliminar al usuario actual
+    if (parseInt(id) === currentUserId) {
+      return res.status(400).json({ error: 'No puedes eliminar tu propio usuario' });
+    }
+
+    const dbPool = await getPool();
+
+    // Verificar que el usuario existe y no es owner
+    const userCheck = await dbPool.query('SELECT id, rol FROM usuarios WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    if (userCheck.rows[0].rol === 'owner') {
+      return res.status(403).json({ error: 'No se puede eliminar un usuario owner' });
+    }
+
+    await dbPool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error eliminando usuario:', error);
+    res.status(500).json({ error: 'Error al eliminar usuario' });
+  }
+});
+
 // Rutas API
 
 // Función helper para convertir tipos de PostgreSQL a JavaScript
@@ -127,6 +271,25 @@ async function convertirProducto(producto) {
       console.warn(`⚠️  Error obteniendo imágenes para producto ${producto.id}:`, imgError.message);
       imagenes = [];
     }
+
+    // Obtener teléfono y nombre del usuario propietario
+    let usuarioTelefono = null;
+    let usuarioNombre = null;
+    if (producto.usuario_id) {
+      try {
+        const dbPool = await getPool();
+        const usuarioResult = await dbPool.query(
+          'SELECT telefono, nombre FROM usuarios WHERE id = $1',
+          [producto.usuario_id]
+        );
+        if (usuarioResult.rows.length > 0) {
+          usuarioTelefono = usuarioResult.rows[0].telefono;
+          usuarioNombre = usuarioResult.rows[0].nombre;
+        }
+      } catch (userError) {
+        console.warn(`⚠️  Error obteniendo datos del usuario para producto ${producto.id}:`, userError.message);
+      }
+    }
     
     return {
       id: parseInt(producto.id),
@@ -136,6 +299,9 @@ async function convertirProducto(producto) {
       stock: parseInt(producto.stock) || 0,
       imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
       imagenes: imagenes, // Array de imágenes
+      usuario_id: producto.usuario_id ? parseInt(producto.usuario_id) : undefined,
+      usuario_telefono: usuarioTelefono,
+      usuario_nombre: usuarioNombre,
       fecha_creacion: producto.fecha_creacion,
       fecha_actualizacion: producto.fecha_actualizacion
     };
@@ -150,17 +316,28 @@ async function convertirProducto(producto) {
       stock: parseInt(producto.stock) || 0,
       imagen_url: producto.imagen_url || null,
       imagenes: [],
+      usuario_id: producto.usuario_id ? parseInt(producto.usuario_id) : undefined,
+      usuario_telefono: null,
+      usuario_nombre: null,
       fecha_creacion: producto.fecha_creacion,
       fecha_actualizacion: producto.fecha_actualizacion
     };
   }
 }
 
-// GET /api/v1/productos - Obtener todos los productos
+// GET /api/v1/productos - Obtener todos los productos (PÚBLICO - sin autenticación)
+// Este endpoint muestra TODOS los productos para la vista pública del catálogo
+// Solo muestra productos de usuarios activos
 app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
     const dbPool = await getPool();
-    const result = await dbPool.query('SELECT * FROM productos ORDER BY id');
+    // Filtrar productos de usuarios activos
+    const result = await dbPool.query(
+      `SELECT p.* FROM productos p 
+       LEFT JOIN usuarios u ON p.usuario_id = u.id 
+       WHERE (p.usuario_id IS NULL OR u.activo = true OR u.activo IS NULL)
+       ORDER BY p.id`
+    );
     // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
     const productos = await Promise.all(result.rows.map(convertirProducto));
     res.json(productos);
@@ -171,6 +348,39 @@ app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
       error: 'Error al obtener productos',
       message: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// GET /api/v1/productos/admin - Obtener productos del usuario actual (requiere autenticación)
+// Este endpoint filtra por usuario_id para el panel de administración
+app.get(`/api/${API_VERSION}/productos/admin`, authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const dbPool = await getPool();
+    const currentUserId = req.user.userId;
+    const currentUserRol = req.user.rol;
+
+    let query;
+    let params = [];
+
+    // Si es admin, solo ver sus productos. Si es owner, ver todos
+    if (currentUserRol === 'admin') {
+      query = 'SELECT * FROM productos WHERE usuario_id = $1 ORDER BY id';
+      params = [currentUserId];
+    } else {
+      // Owner ve todos los productos
+      query = 'SELECT * FROM productos ORDER BY id';
+    }
+
+    const result = await dbPool.query(query, params);
+    // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
+    const productos = await Promise.all(result.rows.map(convertirProducto));
+    res.json(productos);
+  } catch (error) {
+    console.error('Error obteniendo productos del admin:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener productos',
+      message: error.message
     });
   }
 });
@@ -280,6 +490,7 @@ app.post(`/api/${API_VERSION}/upload-multiple`, authenticateToken, requireAdmin,
 app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
+    const currentUserId = req.user.userId; // ID del usuario actual
     
     console.log('📥 POST /productos - Datos recibidos:', { nombre, precio, imagenes: imagenes?.length || 0 });
     
@@ -287,17 +498,18 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
       return res.status(400).json({ error: 'Nombre y precio son requeridos' });
     }
     
-    // Insertar producto
+    // Insertar producto con usuario_id
     console.log('💾 Insertando producto en BD...');
     const dbPool = await getPool();
     const result = await dbPool.query(
-      'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      'INSERT INTO productos (nombre, descripcion, precio, stock, imagen_url, usuario_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [
         nombre.trim(), 
         descripcion ? descripcion.trim() : '', 
         parseFloat(precio), 
         stock !== undefined ? parseInt(stock) : 0,
-        imagen_url ? imagen_url.trim() : null
+        imagen_url ? imagen_url.trim() : null,
+        currentUserId // Asignar usuario_id automáticamente
       ]
     );
     
@@ -343,6 +555,21 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
   try {
     const id = parseInt(req.params.id);
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
+    const currentUserId = req.user.userId;
+    const currentUserRol = req.user.rol;
+    
+    const dbPool = await getPool();
+
+    // Verificar que el producto existe y permisos
+    const productoCheck = await dbPool.query('SELECT usuario_id FROM productos WHERE id = $1', [id]);
+    if (productoCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+
+    // Si es admin, solo puede editar sus propios productos
+    if (currentUserRol === 'admin' && productoCheck.rows[0].usuario_id !== currentUserId) {
+      return res.status(403).json({ error: 'No tienes permisos para editar este producto' });
+    }
     
     // Construir la consulta dinámicamente según los campos proporcionados
     const updates = [];
@@ -378,7 +605,6 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     values.push(id);
     
     const query = `UPDATE productos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
-    const dbPool = await getPool();
     const result = await dbPool.query(query, values);
     
     if (result.rows.length === 0) {
@@ -388,7 +614,6 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     // Actualizar imágenes si se proporcionaron
     if (imagenes !== undefined && Array.isArray(imagenes)) {
       // Eliminar imágenes existentes
-      const dbPool = await getPool();
       await dbPool.query('DELETE FROM producto_imagenes WHERE producto_id = $1', [id]);
       
       // Insertar nuevas imágenes
@@ -415,12 +640,21 @@ app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin,
   try {
     const dbPool = await getPool();
     const id = parseInt(req.params.id);
-    const result = await dbPool.query('DELETE FROM productos WHERE id = $1 RETURNING *', [id]);
-    
-    if (result.rows.length === 0) {
+    const currentUserId = req.user.userId;
+    const currentUserRol = req.user.rol;
+
+    // Verificar que el producto existe y permisos
+    const productoCheck = await dbPool.query('SELECT usuario_id FROM productos WHERE id = $1', [id]);
+    if (productoCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
-    
+
+    // Si es admin, solo puede eliminar sus propios productos
+    if (currentUserRol === 'admin' && productoCheck.rows[0].usuario_id !== currentUserId) {
+      return res.status(403).json({ error: 'No tienes permisos para eliminar este producto' });
+    }
+
+    await dbPool.query('DELETE FROM productos WHERE id = $1', [id]);
     res.status(204).send();
   } catch (error) {
     console.error('Error eliminando producto:', error);

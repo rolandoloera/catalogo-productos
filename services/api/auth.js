@@ -46,7 +46,7 @@ async function login(email, password) {
     const dbPool = await getPool();
     // Buscar usuario
     const result = await dbPool.query(
-      'SELECT id, email, password_hash, nombre, rol, activo FROM usuarios WHERE email = $1',
+      'SELECT id, email, password_hash, nombre, rol, telefono, activo FROM usuarios WHERE email = $1',
       [email.toLowerCase().trim()]
     );
 
@@ -84,7 +84,8 @@ async function login(email, password) {
         id: usuario.id,
         email: usuario.email,
         nombre: usuario.nombre,
-        rol: usuario.rol
+        rol: usuario.rol,
+        telefono: usuario.telefono
       }
     };
   } catch (error) {
@@ -125,14 +126,47 @@ function authenticateToken(req, res, next) {
 }
 
 /**
- * Middleware para verificar rol de administrador
+ * Middleware para verificar rol de administrador (admin o owner)
  */
 function requireAdmin(req, res, next) {
-  if (req.user && req.user.rol === 'admin') {
+  if (req.user && (req.user.rol === 'admin' || req.user.rol === 'owner')) {
     next();
   } else {
     return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de administrador' });
   }
+}
+
+/**
+ * Middleware para verificar rol de owner
+ */
+function requireOwner(req, res, next) {
+  if (req.user && req.user.rol === 'owner') {
+    next();
+  } else {
+    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de owner' });
+  }
+}
+
+/**
+ * Middleware para verificar que el usuario puede acceder a un recurso
+ * Owner puede acceder a todo, admin solo a sus propios recursos
+ */
+function requireOwnerOrSelf(req, res, next) {
+  const requestedUserId = parseInt(req.params.id);
+  const currentUserId = req.user.userId;
+  const currentUserRol = req.user.rol;
+
+  // Owner puede acceder a todo
+  if (currentUserRol === 'owner') {
+    return next();
+  }
+
+  // Admin solo puede acceder a sus propios recursos
+  if (currentUserRol === 'admin' && currentUserId === requestedUserId) {
+    return next();
+  }
+
+  return res.status(403).json({ error: 'No tienes permisos para acceder a este recurso' });
 }
 
 module.exports = {
@@ -140,6 +174,8 @@ module.exports = {
   login,
   verifyToken,
   authenticateToken,
-  requireAdmin
+  requireAdmin,
+  requireOwner,
+  requireOwnerOrSelf
 };
 

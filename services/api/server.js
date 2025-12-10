@@ -446,7 +446,7 @@ function normalizarUrlImagen(url) {
   if (!url) return url;
   
   // Si la URL contiene localhost, reemplazarla con la URL de producción
-  if (url.includes('localhost:3001') || url.includes('http://localhost')) {
+  if (url.includes('localhost:3001') || url.includes('http://localhost') || url.includes('localhost:')) {
     const apiBaseUrl = process.env.API_BASE_URL || 
                       (process.env.NODE_ENV === 'production' 
                         ? 'https://catalogo-productos-api.onrender.com'

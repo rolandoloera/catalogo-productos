@@ -2,8 +2,19 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getPool } = require('./database');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'tu-secret-super-seguro-cambiar-en-produccion';
+// Validar JWT_SECRET en producción
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+if (!JWT_SECRET) {
+  console.error('❌ ERROR CRÍTICO: JWT_SECRET no está configurado en las variables de entorno');
+  console.error('   En producción, esto es un riesgo de seguridad grave.');
+  console.error('   Genera un secreto seguro con: openssl rand -base64 32');
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1); // Salir en producción si no hay JWT_SECRET
+  }
+  console.warn('   ⚠️  Usando secreto por defecto (SOLO PARA DESARROLLO)');
+}
 
 /**
  * Crear usuario administrador por defecto (solo si no existe)
@@ -13,7 +24,8 @@ async function crearUsuarioAdminPorDefecto() {
     const dbPool = await getPool();
     // Verificar si ya existe un admin
     const result = await dbPool.query('SELECT COUNT(*) FROM usuarios WHERE rol = $1', ['admin']);
-    if (parseInt(result.rows[0].count) > 0) {
+    const count = parseInt(result.rows[0].count, 10);
+    if (!isNaN(count) && count > 0) {
       return; // Ya existe un admin
     }
 
@@ -31,7 +43,7 @@ async function crearUsuarioAdminPorDefecto() {
 
     console.log('✅ Usuario administrador creado:');
     console.log(`   Email: ${email}`);
-    console.log(`   Password: ${password}`);
+    // NO logear la contraseña por seguridad
     console.log('   ⚠️  IMPORTANTE: Cambia la contraseña después del primer login');
   } catch (error) {
     console.error('⚠️  Error creando usuario admin:', error.message);
@@ -152,7 +164,13 @@ function requireOwner(req, res, next) {
  * Owner puede acceder a todo, admin solo a sus propios recursos
  */
 function requireOwnerOrSelf(req, res, next) {
-  const requestedUserId = parseInt(req.params.id);
+  const requestedUserId = parseInt(req.params.id, 10);
+  
+  // Validar que el ID es un número válido
+  if (isNaN(requestedUserId) || requestedUserId <= 0) {
+    return res.status(400).json({ error: 'ID de usuario inválido' });
+  }
+  
   const currentUserId = req.user.userId;
   const currentUserRol = req.user.rol;
 

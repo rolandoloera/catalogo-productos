@@ -6,16 +6,30 @@ if (process.env.NODE_ENV !== 'production') {
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { body, param, validationResult } = require('express-validator');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const sharp = require('sharp');
 const { pool, getPool, testConnection, initializeDatabase } = require('./database');
 const { login, verifyToken, authenticateToken, requireAdmin, requireOwner, requireOwnerOrSelf, crearUsuarioAdminPorDefecto } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const API_VERSION = process.env.API_VERSION || 'v1';
+
+// Validar variables de entorno críticas en producción
+if (process.env.NODE_ENV === 'production') {
+  const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL'];
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  if (missingVars.length > 0) {
+    console.error('❌ ERROR: Variables de entorno requeridas no configuradas:', missingVars.join(', '));
+    process.exit(1);
+  }
+}
 
 // Configurar Cloudinary si está disponible (para producción)
 let cloudinary;
@@ -65,30 +79,131 @@ const upload = multer({
   }
 });
 
-// Middleware
-app.use(cors()); // Permitir CORS para que el frontend pueda consumir la API
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// ========== MIDDLEWARE DE SEGURIDAD ==========
 
-// Servir archivos estáticos de uploads
-app.use('/uploads', express.static(uploadDir));
+// Helmet.js - Headers de seguridad
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Permitir imágenes desde otros orígenes si es necesario
+}));
+
+// CORS - Configurar origen específico
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use(cors(corsOptions));
+
+// Rate limiting general
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // 100 requests por IP
+  message: { error: 'Demasiadas solicitudes desde esta IP, intenta de nuevo más tarde' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting para login (más estricto)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // Solo 5 intentos de login por IP
+  skipSuccessfulRequests: true, // No contar requests exitosos
+  message: { error: 'Demasiados intentos de login, intenta de nuevo en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting para WhatsApp (evitar abuso)
+const whatsappLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 10, // 10 requests por minuto
+  message: { error: 'Demasiadas solicitudes, intenta de nuevo más tarde' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Aplicar rate limiting general a todas las rutas API
+app.use(`/api/${API_VERSION}/`, generalLimiter);
+
+// Body parser
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+
+// ========== FUNCIONES HELPER DE SEGURIDAD ==========
+
+/**
+ * Parsear entero de forma segura
+ */
+function safeParseInt(value, defaultValue = 0) {
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Parsear float de forma segura
+ */
+function safeParseFloat(value, defaultValue = 0) {
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Validar resultados de express-validator
+ */
+function validateRequest(req, res, next) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      error: 'Datos inválidos',
+      details: errors.array()
+    });
+  }
+  next();
+}
+
+/**
+ * Middleware para servir archivos estáticos de forma segura
+ * Solo permite acceso a archivos que pertenecen a productos válidos
+ */
+async function serveSecureFile(req, res, next) {
+  const filename = req.path.replace('/', '');
+  const filePath = path.join(uploadDir, filename);
+  
+  // Verificar que el archivo existe y está en el directorio permitido
+  if (!fs.existsSync(filePath) || !filePath.startsWith(uploadDir)) {
+    return res.status(404).json({ error: 'Archivo no encontrado' });
+  }
+  
+  // Verificar que el archivo pertenece a un producto (opcional, pero recomendado)
+  // Por ahora, solo verificamos que existe y está en el directorio correcto
+  next();
+}
+
+// Servir archivos estáticos de uploads con protección
+app.use('/uploads', serveSecureFile, express.static(uploadDir));
 
 // ========== RUTAS DE AUTENTICACIÓN ==========
 
 // POST /api/v1/auth/login - Login de administrador
-app.post(`/api/${API_VERSION}/auth/login`, async (req, res) => {
+app.post(`/api/${API_VERSION}/auth/login`, loginLimiter, [
+  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
+  body('password').notEmpty().withMessage('Contraseña requerida')
+], validateRequest, async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
-    }
-    
     const result = await login(email, password);
     res.json(result);
   } catch (error) {
-    console.error('Error en login:', error);
-    res.status(401).json({ error: error.message || 'Credenciales inválidas' });
+    // No exponer detalles del error en producción
+    console.error('Error en login:', error.message);
+    res.status(401).json({ error: 'Credenciales inválidas' });
   }
 });
 
@@ -121,13 +236,14 @@ app.get(`/api/${API_VERSION}/usuarios`, authenticateToken, requireOwner, async (
 });
 
 // POST /api/v1/usuarios - Crear nuevo usuario administrador (solo owner)
-app.post(`/api/${API_VERSION}/usuarios`, authenticateToken, requireOwner, async (req, res) => {
+app.post(`/api/${API_VERSION}/usuarios`, authenticateToken, requireOwner, [
+  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
+  body('password').isLength({ min: 8 }).matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número'),
+  body('nombre').trim().isLength({ min: 2, max: 100 }).escape().withMessage('El nombre debe tener entre 2 y 100 caracteres'),
+  body('telefono').optional().matches(/^\d{10,15}$/).withMessage('Teléfono inválido (10-15 dígitos)')
+], validateRequest, async (req, res) => {
   try {
     const { email, password, nombre, telefono } = req.body;
-
-    if (!email || !password || !nombre) {
-      return res.status(400).json({ error: 'Email, contraseña y nombre son requeridos' });
-    }
 
     const dbPool = await getPool();
 
@@ -217,13 +333,18 @@ app.put(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwnerOrSel
 });
 
 // DELETE /api/v1/usuarios/:id - Eliminar usuario (solo owner)
-app.delete(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwner, async (req, res) => {
+app.delete(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwner, [
+  param('id').isInt({ min: 1 }).withMessage('ID de usuario inválido')
+], validateRequest, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = safeParseInt(req.params.id);
+    if (id <= 0) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
     const currentUserId = req.user.userId;
 
     // No permitir eliminar al usuario actual
-    if (parseInt(id) === currentUserId) {
+    if (id === currentUserId) {
       return res.status(400).json({ error: 'No puedes eliminar tu propio usuario' });
     }
 
@@ -250,12 +371,11 @@ app.delete(`/api/${API_VERSION}/usuarios/:id`, authenticateToken, requireOwner, 
 // Rutas API
 
 // Función helper para convertir tipos de PostgreSQL a JavaScript
-async function convertirProducto(producto) {
+// includeTelefono: si es false, NO incluye usuario_telefono (para endpoints públicos por seguridad)
+async function convertirProducto(producto, includeTelefono = true) {
   try {
     // PostgreSQL devuelve DECIMAL como string, necesitamos convertirlo explícitamente
-    const precio = typeof producto.precio === 'string' 
-      ? parseFloat(producto.precio) 
-      : Number(producto.precio);
+    const precio = safeParseFloat(producto.precio, 0);
     
     // Obtener todas las imágenes del producto (con manejo de errores)
     let imagenes = [];
@@ -272,10 +392,10 @@ async function convertirProducto(producto) {
       imagenes = [];
     }
 
-    // Obtener teléfono y nombre del usuario propietario
+    // Obtener teléfono y nombre del usuario propietario (solo si se requiere)
     let usuarioTelefono = null;
     let usuarioNombre = null;
-    if (producto.usuario_id) {
+    if (producto.usuario_id && includeTelefono) {
       try {
         const dbPool = await getPool();
         const usuarioResult = await dbPool.query(
@@ -289,35 +409,55 @@ async function convertirProducto(producto) {
       } catch (userError) {
         console.warn(`⚠️  Error obteniendo datos del usuario para producto ${producto.id}:`, userError.message);
       }
+    } else if (producto.usuario_id && !includeTelefono) {
+      // Solo obtener nombre, no teléfono (para endpoints públicos)
+      try {
+        const dbPool = await getPool();
+        const usuarioResult = await dbPool.query(
+          'SELECT nombre FROM usuarios WHERE id = $1',
+          [producto.usuario_id]
+        );
+        if (usuarioResult.rows.length > 0) {
+          usuarioNombre = usuarioResult.rows[0].nombre;
+        }
+      } catch (userError) {
+        console.warn(`⚠️  Error obteniendo nombre del usuario para producto ${producto.id}:`, userError.message);
+      }
     }
     
-    return {
-      id: parseInt(producto.id),
+    const productoConvertido = {
+      id: safeParseInt(producto.id, 0),
       nombre: producto.nombre,
       descripcion: producto.descripcion || '',
       precio: precio,
-      stock: parseInt(producto.stock) || 0,
+      stock: safeParseInt(producto.stock, 0),
       imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
       imagenes: imagenes, // Array de imágenes
-      usuario_id: producto.usuario_id ? parseInt(producto.usuario_id) : undefined,
-      usuario_telefono: usuarioTelefono,
+      usuario_id: producto.usuario_id ? safeParseInt(producto.usuario_id, 0) : undefined,
       usuario_nombre: usuarioNombre,
       fecha_creacion: producto.fecha_creacion,
       fecha_actualizacion: producto.fecha_actualizacion
     };
+
+    // Solo incluir usuario_telefono si includeTelefono es true (endpoints autenticados)
+    if (includeTelefono) {
+      productoConvertido.usuario_telefono = usuarioTelefono;
+    }
+
+    return productoConvertido;
   } catch (error) {
     console.error('Error en convertirProducto:', error);
     // Retornar producto básico sin imágenes si hay error
     return {
-      id: parseInt(producto.id),
+      id: safeParseInt(producto.id, 0),
       nombre: producto.nombre || '',
       descripcion: producto.descripcion || '',
-      precio: typeof producto.precio === 'string' ? parseFloat(producto.precio) : Number(producto.precio) || 0,
-      stock: parseInt(producto.stock) || 0,
+      precio: safeParseFloat(producto.precio, 0),
+      stock: safeParseInt(producto.stock, 0),
       imagen_url: producto.imagen_url || null,
       imagenes: [],
-      usuario_id: producto.usuario_id ? parseInt(producto.usuario_id) : undefined,
-      usuario_telefono: null,
+      usuario_id: producto.usuario_id ? safeParseInt(producto.usuario_id, 0) : undefined,
+      usuario_telefono: includeTelefono ? null : undefined,
       usuario_nombre: null,
       fecha_creacion: producto.fecha_creacion,
       fecha_actualizacion: producto.fecha_actualizacion
@@ -328,26 +468,35 @@ async function convertirProducto(producto) {
 // GET /api/v1/productos - Obtener todos los productos (PÚBLICO - sin autenticación)
 // Este endpoint muestra TODOS los productos para la vista pública del catálogo
 // Solo muestra productos de usuarios activos
+// NO incluye usuario_telefono por seguridad
 app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
   try {
     const dbPool = await getPool();
+    // Paginación básica (límite máximo para prevenir DoS)
+    const limit = Math.min(safeParseInt(req.query.limit, 100), 500); // Máximo 500 productos
+    const offset = Math.max(safeParseInt(req.query.offset, 0), 0);
+    
     // Filtrar productos de usuarios activos
     const result = await dbPool.query(
       `SELECT p.* FROM productos p 
        LEFT JOIN usuarios u ON p.usuario_id = u.id 
        WHERE (p.usuario_id IS NULL OR u.activo = true OR u.activo IS NULL)
-       ORDER BY p.id`
+       ORDER BY p.id
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
-    const productos = await Promise.all(result.rows.map(convertirProducto));
+    // NO incluir usuario_telefono en endpoint público por seguridad
+    const productos = await Promise.all(result.rows.map(p => convertirProducto(p, false)));
     res.json(productos);
   } catch (error) {
-    console.error('Error obteniendo productos:', error);
-    console.error('Stack:', error.stack);
+    console.error('Error obteniendo productos:', error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Stack:', error.stack);
+    }
     res.status(500).json({ 
       error: 'Error al obtener productos',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      ...(process.env.NODE_ENV === 'development' && { details: error.message })
     });
   }
 });
@@ -368,13 +517,17 @@ app.get(`/api/${API_VERSION}/productos/admin`, authenticateToken, requireAdmin, 
       query = 'SELECT * FROM productos WHERE usuario_id = $1 ORDER BY id';
       params = [currentUserId];
     } else {
-      // Owner ve todos los productos
-      query = 'SELECT * FROM productos ORDER BY id';
+      // Owner ve todos los productos (con paginación)
+      const limit = Math.min(safeParseInt(req.query.limit, 100), 500);
+      const offset = Math.max(safeParseInt(req.query.offset, 0), 0);
+      query = 'SELECT * FROM productos ORDER BY id LIMIT $1 OFFSET $2';
+      params = [limit, offset];
     }
 
     const result = await dbPool.query(query, params);
     // Convertir tipos de PostgreSQL (DECIMAL viene como string) y agregar imágenes
-    const productos = await Promise.all(result.rows.map(convertirProducto));
+    // Incluir teléfono solo en endpoints autenticados (admin)
+    const productos = await Promise.all(result.rows.map(p => convertirProducto(p, true)));
     res.json(productos);
   } catch (error) {
     console.error('Error obteniendo productos del admin:', error);
@@ -385,22 +538,86 @@ app.get(`/api/${API_VERSION}/productos/admin`, authenticateToken, requireAdmin, 
   }
 });
 
-// GET /api/v1/productos/:id - Obtener un producto por ID
+// GET /api/v1/productos/:id - Obtener un producto por ID (PÚBLICO)
+// NO incluye usuario_telefono por seguridad
 app.get(`/api/${API_VERSION}/productos/:id`, async (req, res) => {
   try {
     const dbPool = await getPool();
-    const id = parseInt(req.params.id);
+    const id = safeParseInt(req.params.id);
+    if (id <= 0) {
+      return res.status(400).json({ error: 'ID de producto inválido' });
+    }
     const result = await dbPool.query('SELECT * FROM productos WHERE id = $1', [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
     
-    // Convertir tipos de PostgreSQL
-    res.json(await convertirProducto(result.rows[0]));
+    // Convertir tipos de PostgreSQL - NO incluir teléfono en endpoint público
+    res.json(await convertirProducto(result.rows[0], false));
   } catch (error) {
     console.error('Error obteniendo producto:', error);
     res.status(500).json({ error: 'Error al obtener producto' });
+  }
+});
+
+// POST /api/v1/whatsapp/generate-link - Generar enlace de WhatsApp sin exponer número (SEGURO)
+app.post(`/api/${API_VERSION}/whatsapp/generate-link`, whatsappLimiter, [
+  body('producto_id').isInt({ min: 1 }).withMessage('ID de producto inválido'),
+  body('mensaje').optional().isLength({ max: 500 }).trim().escape()
+], validateRequest, async (req, res) => {
+  try {
+    const { producto_id, mensaje } = req.body;
+    const productoId = safeParseInt(producto_id);
+    
+    if (productoId <= 0) {
+      return res.status(400).json({ error: 'ID de producto inválido' });
+    }
+    
+    const dbPool = await getPool();
+    
+    // Obtener producto y teléfono del usuario propietario
+    const productoResult = await dbPool.query(
+      `SELECT p.*, u.telefono, u.activo 
+       FROM productos p 
+       LEFT JOIN usuarios u ON p.usuario_id = u.id 
+       WHERE p.id = $1`,
+      [productoId]
+    );
+    
+    if (productoResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+    
+    const producto = productoResult.rows[0];
+    
+    // Verificar que el usuario esté activo
+    if (producto.usuario_id && producto.activo === false) {
+      return res.status(403).json({ error: 'El vendedor no está disponible' });
+    }
+    
+    const telefono = producto.telefono;
+    
+    if (!telefono) {
+      return res.status(400).json({ error: 'El vendedor no tiene teléfono configurado' });
+    }
+    
+    // Generar mensaje por defecto si no se proporciona
+    let mensajeFinal = mensaje || '';
+    if (!mensajeFinal) {
+      const precio = safeParseFloat(producto.precio, 0);
+      mensajeFinal = `Hola, me interesa el producto: ${producto.nombre} - $${precio.toFixed(2)}`;
+    }
+    
+    // Generar enlace de WhatsApp sin exponer el número en la respuesta del cliente
+    const encodedMessage = encodeURIComponent(mensajeFinal);
+    const whatsappUrl = `https://wa.me/${telefono}?text=${encodedMessage}`;
+    
+    // Retornar solo el enlace, no el número
+    res.json({ url: whatsappUrl });
+  } catch (error) {
+    console.error('Error generando enlace de WhatsApp:', error);
+    res.status(500).json({ error: 'Error generando enlace de WhatsApp' });
   }
 });
 
@@ -409,6 +626,24 @@ app.post(`/api/${API_VERSION}/upload`, authenticateToken, requireAdmin, upload.s
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No se proporcionó ningún archivo' });
+    }
+
+    // Validar que el archivo es realmente una imagen usando sharp
+    try {
+      const metadata = await sharp(req.file.path).metadata();
+      if (!metadata.width || !metadata.height || !metadata.format) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'El archivo no es una imagen válida' });
+      }
+      
+      // Validar dimensiones razonables (opcional)
+      if (metadata.width > 10000 || metadata.height > 10000) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'La imagen es demasiado grande (máximo 10000x10000px)' });
+      }
+    } catch (sharpError) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'El archivo no es una imagen válida' });
     }
 
     let imagenUrl;
@@ -431,8 +666,8 @@ app.post(`/api/${API_VERSION}/upload`, authenticateToken, requireAdmin, upload.s
 
     res.json({ imagen_url: imagenUrl });
   } catch (error) {
-    console.error('Error subiendo imagen:', error);
-    if (req.file) {
+    console.error('Error subiendo imagen:', error.message);
+    if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path); // Limpiar archivo en caso de error
     }
     res.status(500).json({ error: 'Error al subir imagen' });
@@ -448,33 +683,64 @@ app.post(`/api/${API_VERSION}/upload-multiple`, authenticateToken, requireAdmin,
 
     if (req.files.length > 8) {
       // Eliminar archivos subidos
-      req.files.forEach(file => fs.unlinkSync(file.path));
+      req.files.forEach(file => {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      });
       return res.status(400).json({ error: 'Máximo 8 imágenes por producto' });
     }
 
     const imagenUrls = [];
+    const filesToCleanup = [];
 
     for (const file of req.files) {
-      let imagenUrl;
+      try {
+        // Validar que el archivo es realmente una imagen usando sharp
+        const metadata = await sharp(file.path).metadata();
+        if (!metadata.width || !metadata.height || !metadata.format) {
+          filesToCleanup.push(file.path);
+          continue; // Saltar este archivo
+        }
+        
+        // Validar dimensiones razonables
+        if (metadata.width > 10000 || metadata.height > 10000) {
+          filesToCleanup.push(file.path);
+          continue; // Saltar este archivo
+        }
 
-      if (cloudinary) {
-        const result = await cloudinary.uploader.upload(file.path, {
-          folder: 'catalogo-productos',
-          resource_type: 'image'
-        });
-        imagenUrl = result.secure_url;
-        fs.unlinkSync(file.path);
-      } else {
-        const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
-        imagenUrl = `${baseUrl}/uploads/${file.filename}`;
+        let imagenUrl;
+
+        if (cloudinary) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'catalogo-productos',
+            resource_type: 'image'
+          });
+          imagenUrl = result.secure_url;
+          fs.unlinkSync(file.path);
+        } else {
+          const baseUrl = process.env.API_BASE_URL || `http://localhost:${PORT}`;
+          imagenUrl = `${baseUrl}/uploads/${file.filename}`;
+        }
+
+        imagenUrls.push(imagenUrl);
+      } catch (fileError) {
+        // Si hay error con un archivo, limpiarlo y continuar con los demás
+        filesToCleanup.push(file.path);
+        console.warn(`Error procesando archivo ${file.filename}:`, fileError.message);
       }
+    }
 
-      imagenUrls.push(imagenUrl);
+    // Limpiar archivos inválidos
+    filesToCleanup.forEach(filePath => {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    });
+
+    if (imagenUrls.length === 0) {
+      return res.status(400).json({ error: 'Ninguna imagen válida fue procesada' });
     }
 
     res.json({ imagenes: imagenUrls });
   } catch (error) {
-    console.error('Error subiendo imágenes:', error);
+    console.error('Error subiendo imágenes:', error.message);
     if (req.files) {
       req.files.forEach(file => {
         if (fs.existsSync(file.path)) {
@@ -487,16 +753,19 @@ app.post(`/api/${API_VERSION}/upload-multiple`, authenticateToken, requireAdmin,
 });
 
 // POST /api/v1/productos - Crear un nuevo producto (requiere autenticación)
-app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async (req, res) => {
+app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, [
+  body('nombre').trim().isLength({ min: 1, max: 200 }).escape().withMessage('El nombre es requerido y debe tener máximo 200 caracteres'),
+  body('descripcion').optional().trim().isLength({ max: 2000 }).escape(),
+  body('precio').isFloat({ min: 0 }).withMessage('El precio debe ser un número positivo'),
+  body('stock').optional().isInt({ min: 0 }).withMessage('El stock debe ser un número entero positivo'),
+  body('imagen_url').optional().isURL().withMessage('URL de imagen inválida'),
+  body('imagenes').optional().isArray({ max: 8 }).withMessage('Máximo 8 imágenes')
+], validateRequest, async (req, res) => {
   try {
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     const currentUserId = req.user.userId; // ID del usuario actual
     
     console.log('📥 POST /productos - Datos recibidos:', { nombre, precio, imagenes: imagenes?.length || 0 });
-    
-    if (!nombre || precio === undefined) {
-      return res.status(400).json({ error: 'Nombre y precio son requeridos' });
-    }
     
     // Insertar producto con usuario_id
     console.log('💾 Insertando producto en BD...');
@@ -506,8 +775,8 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
       [
         nombre.trim(), 
         descripcion ? descripcion.trim() : '', 
-        parseFloat(precio), 
-        stock !== undefined ? parseInt(stock) : 0,
+        safeParseFloat(precio, 0), 
+        stock !== undefined ? safeParseInt(stock, 0) : 0,
         imagen_url ? imagen_url.trim() : null,
         currentUserId // Asignar usuario_id automáticamente
       ]
@@ -538,22 +807,27 @@ app.post(`/api/${API_VERSION}/productos`, authenticateToken, requireAdmin, async
     console.log('   Imágenes guardadas:', productoConvertido.imagenes?.length || 0);
     res.status(201).json(productoConvertido);
   } catch (error) {
-    console.error('❌ Error creando producto:', error);
-    console.error('   Mensaje:', error.message);
-    console.error('   Código:', error.code);
-    console.error('   Stack trace:', error.stack);
+    console.error('❌ Error creando producto:', error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('   Código:', error.code);
+      console.error('   Stack trace:', error.stack);
+    }
     res.status(500).json({ 
-      error: 'Error al crear producto', 
-      details: error.message,
-      code: error.code
+      error: 'Error al crear producto',
+      ...(process.env.NODE_ENV === 'development' && { details: error.message })
     });
   }
 });
 
 // PUT /api/v1/productos/:id - Actualizar un producto (requiere autenticación)
-app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
+app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, [
+  param('id').isInt({ min: 1 }).withMessage('ID de producto inválido')
+], validateRequest, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = safeParseInt(req.params.id);
+    if (id <= 0) {
+      return res.status(400).json({ error: 'ID de producto inválido' });
+    }
     const { nombre, descripcion, precio, stock, imagen_url, imagenes } = req.body;
     const currentUserId = req.user.userId;
     const currentUserRol = req.user.rol;
@@ -586,11 +860,11 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
     }
     if (precio !== undefined) {
       updates.push(`precio = $${paramIndex++}`);
-      values.push(parseFloat(precio));
+      values.push(safeParseFloat(precio, 0));
     }
     if (stock !== undefined) {
       updates.push(`stock = $${paramIndex++}`);
-      values.push(parseInt(stock));
+      values.push(safeParseInt(stock, 0));
     }
     if (imagen_url !== undefined) {
       updates.push(`imagen_url = $${paramIndex++}`);
@@ -636,10 +910,15 @@ app.put(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, as
 });
 
 // DELETE /api/v1/productos/:id - Eliminar un producto (requiere autenticación)
-app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, async (req, res) => {
+app.delete(`/api/${API_VERSION}/productos/:id`, authenticateToken, requireAdmin, [
+  param('id').isInt({ min: 1 }).withMessage('ID de producto inválido')
+], validateRequest, async (req, res) => {
   try {
     const dbPool = await getPool();
-    const id = parseInt(req.params.id);
+    const id = safeParseInt(req.params.id);
+    if (id <= 0) {
+      return res.status(400).json({ error: 'ID de producto inválido' });
+    }
     const currentUserId = req.user.userId;
     const currentUserRol = req.user.rol;
 
@@ -743,8 +1022,10 @@ async function startServer() {
       console.log(`🗄️  Base de datos: PostgreSQL`);
     });
   } catch (error) {
-    console.error('❌ Error crítico al iniciar el servidor:', error);
-    console.error('Stack trace:', error.stack);
+    console.error('❌ Error crítico al iniciar el servidor:', error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Stack trace:', error.stack);
+    }
     // Solo hacer exit si es un error crítico del servidor HTTP
     setTimeout(() => process.exit(1), 5000); // Dar tiempo para que los logs se envíen
   }

@@ -511,8 +511,26 @@ async function convertirProducto(producto, includeTelefono = true) {
 // Solo muestra productos de usuarios activos
 // NO incluye usuario_telefono por seguridad
 app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
+  // Aplicar CORS manualmente ANTES de cualquier operación para asegurar headers en errores
+  const origin = req.headers.origin;
+  if (origin) {
+    const isAllowed = allowedOrigins.includes(origin) || 
+                     allowedOrigins.includes('*') ||
+                     (process.env.NODE_ENV !== 'production' && origin.includes('localhost'));
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    }
+  }
+  
   try {
     const dbPool = await getPool();
+    if (!dbPool) {
+      throw new Error('No se pudo obtener conexión a la base de datos');
+    }
+    
     // Paginación básica (límite máximo para prevenir DoS)
     const limit = Math.min(safeParseInt(req.query.limit, 100), 500); // Máximo 500 productos
     const offset = Math.max(safeParseInt(req.query.offset, 0), 0);
@@ -536,6 +554,15 @@ app.get(`/api/${API_VERSION}/productos`, async (req, res) => {
       console.error('Stack:', error.stack);
     }
     // Asegurar que CORS se aplique incluso en errores
+    if (origin) {
+      const isAllowed = allowedOrigins.includes(origin) || 
+                       allowedOrigins.includes('*') ||
+                       (process.env.NODE_ENV !== 'production' && origin.includes('localhost'));
+      if (isAllowed) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+    }
     res.status(500).json({ 
       error: 'Error al obtener productos',
       ...(process.env.NODE_ENV === 'development' && { details: error.message })

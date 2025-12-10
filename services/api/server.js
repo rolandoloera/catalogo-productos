@@ -520,8 +520,8 @@ async function convertirProducto(producto, includeTelefono = true) {
       descripcion: producto.descripcion || '',
       precio: precio,
       stock: safeParseInt(producto.stock, 0),
-      imagen_url: producto.imagen_url || null, // Mantener para compatibilidad
-      imagenes: imagenes, // Array de imágenes
+      imagen_url: normalizarUrlImagen(producto.imagen_url) || null, // Normalizar URL principal
+      imagenes: imagenes, // Array de imágenes (ya normalizadas)
       usuario_id: producto.usuario_id ? safeParseInt(producto.usuario_id, 0) : undefined,
       usuario_nombre: usuarioNombre,
       fecha_creacion: producto.fecha_creacion,
